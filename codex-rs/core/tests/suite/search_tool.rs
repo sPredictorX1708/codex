@@ -987,8 +987,13 @@ impl<'call> ToolExecutor<ToolCall<'call>> for DeferredCustomTool {
     }
 }
 
+#[test_case::test_case("custom payload"; "description")]
+#[test_case::test_case("custom_echo"; "identifier")]
+#[test_case::test_case("functions.custom_echo"; "qualified_identifier")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn tool_search_returns_deferred_custom_tool_and_routes_follow_up_call() -> Result<()> {
+async fn tool_search_returns_deferred_custom_tool_and_routes_follow_up_call(
+    query: &str,
+) -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
@@ -997,7 +1002,7 @@ async fn tool_search_returns_deferred_custom_tool_and_routes_follow_up_call() ->
         vec![
             sse(vec![
                 ev_response_created("resp-1"),
-                ev_tool_search_call("search-1", &json!({ "query": "custom payload" })),
+                ev_tool_search_call("search-1", &json!({ "query": query })),
                 ev_completed("resp-1"),
             ]),
             sse(vec![
@@ -1744,6 +1749,11 @@ async fn tool_search_matches_dynamic_tools_by_name_description_namespace_and_sch
     let server = start_mock_server().await;
     let query_cases = [
         ("tool-search-dynamic-name", "quasar_ping_beacon"),
+        (
+            "tool-search-dynamic-qualified",
+            "+orbit_ops quasar_ping_beacon",
+        ),
+        ("tool-search-dynamic-case", "QUASAR_PING_BEACON"),
         ("tool-search-dynamic-spaces", "quasar ping beacon"),
         ("tool-search-dynamic-description", "saffron metronome"),
         ("tool-search-dynamic-namespace", "orbit_ops"),
@@ -1825,6 +1835,8 @@ async fn tool_search_matches_dynamic_tools_by_name_description_namespace_and_sch
 
     for call_id in [
         "tool-search-dynamic-name",
+        "tool-search-dynamic-qualified",
+        "tool-search-dynamic-case",
         "tool-search-dynamic-spaces",
         "tool-search-dynamic-description",
         "tool-search-dynamic-namespace",

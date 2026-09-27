@@ -248,6 +248,15 @@ impl ToolSearchHandler {
         query: &str,
         limit: usize,
     ) -> Result<Vec<LoadableToolSpec>, FunctionCallError> {
+        let mut exact_matches = self
+            .search_infos
+            .iter()
+            .filter(|info| info.matches_identifier_query(query))
+            .map(|info| &info.entry)
+            .peekable();
+        if exact_matches.peek().is_some() {
+            return self.search_output_tools(exact_matches.take(limit));
+        }
         let results = self
             .search_engine
             .search(query, limit)
@@ -285,6 +294,46 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
+    fn exact_identifiers_precede_shared_prose_and_preserve_ambiguity() {
+        let mut first = tool_info(
+            "archive",
+            "ReadArchivePages",
+            &"Read pages. ".repeat(/*n*/ 100),
+        );
+        first.namespace_description = Some("Use ReadArchivePages for archive data.".to_string());
+        let mut other = tool_info("archive", "GetPolicy", "Get a policy");
+        other.namespace_description = first.namespace_description.clone();
+        let duplicate = tool_info("second", "ReadArchivePages", "Read another archive");
+        let infos = [other, first, duplicate]
+            .into_iter()
+            .map(|tool| McpHandler::new(tool).unwrap().search_info().unwrap())
+            .collect::<Vec<_>>();
+        let expected_first = infos[1].entry.to_loadable_spec();
+        let expected_second = infos[2].entry.to_loadable_spec();
+        let expected_policy = infos[0].entry.to_loadable_spec();
+        let handler = ToolSearchHandler::new(infos, ToolSearchSourceListing::Include);
+
+        assert_eq!(
+            handler
+                .search("+archive ReadArchivePages", /*limit*/ 1)
+                .unwrap(),
+            vec![expected_first.clone()]
+        );
+        assert_eq!(
+            handler.search("ReadArchivePages", /*limit*/ 2).unwrap(),
+            vec![expected_first.clone(), expected_second]
+        );
+        assert_eq!(
+            handler.search("ReadArchivePages", /*limit*/ 1).unwrap(),
+            vec![expected_first]
+        );
+        assert_eq!(
+            handler.search("Get a policy", /*limit*/ 1).unwrap(),
+            vec![expected_policy]
+        );
+    }
+
+    #[test]
     fn cache_reuses_immutable_handlers_and_rebuilds_for_current_registry_changes() {
         let cache = ToolSearchHandlerCache::default();
         let runtime: Arc<dyn CoreToolRuntime> = Arc::new(
@@ -315,6 +364,12 @@ mod tests {
         let disabled = cache.get_or_build(&disabled_registry, ToolSearchSourceListing::Omit);
         assert!(!Arc::ptr_eq(&replacement, &disabled));
         assert!(disabled.search_infos.is_empty());
+        assert!(
+            disabled
+                .search("create_event", /*limit*/ 1)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -351,6 +406,7 @@ mod tests {
         assert!(Arc::ptr_eq(&first, &equivalent));
 
         dynamic_tool.description = "Search refreshed records".to_string();
+        dynamic_tool.name = "lookup_refreshed".to_string();
         let mut refreshed_registry = ToolRegistry::default();
         refreshed_registry.register_trusted_with_exposure(mcp_runtime, ToolExposure::Deferred);
         refreshed_registry.register_external_with_exposure(
@@ -359,6 +415,8 @@ mod tests {
         );
         let refreshed = cache.get_or_build(&refreshed_registry, ToolSearchSourceListing::Include);
         assert!(!Arc::ptr_eq(&first, &refreshed));
+        assert!(!refreshed.search_infos[1].matches_identifier_query("lookup"));
+        assert!(refreshed.search_infos[1].matches_identifier_query("lookup_refreshed"));
         assert!(
             refreshed.search_infos[1]
                 .entry

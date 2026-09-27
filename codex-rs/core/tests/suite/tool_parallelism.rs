@@ -151,8 +151,10 @@ async fn read_file_tools_run_in_parallel() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[test_case::test_case(None; "resumable")]
+#[test_case::test_case(Some(10000); "completion")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn shell_tools_run_in_parallel() -> anyhow::Result<()> {
+async fn shell_tools_run_in_parallel(timeout_ms: Option<u64>) -> anyhow::Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
@@ -161,6 +163,7 @@ async fn shell_tools_run_in_parallel() -> anyhow::Result<()> {
 
     let shell_args = json!({
         "cmd": "sleep 0.25",
+        "timeout_ms": timeout_ms,
         // Avoid user-specific shell startup cost (e.g. zsh profile scripts) in timing assertions.
         "login": false,
         "yield_time_ms": 1_000,

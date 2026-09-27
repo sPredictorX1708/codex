@@ -594,6 +594,30 @@ fn create_filesystem_args(
             allowed_write_paths.push(target);
         }
     }
+    let mut expanded_roots = BTreeSet::new();
+    for root in unreadable_roots {
+        let target = canonical_target_if_symlinked_path(&root).unwrap_or_else(|| root.clone());
+        if first_writable_symlink_component_in_path(&root, &allowed_write_paths).is_some() {
+            expanded_roots.insert(root);
+        }
+        for mount in bwrap_args
+            .args
+            .windows(3)
+            .filter(|args| args[0] == "--ro-bind")
+        {
+            let mount_root = Path::new(&mount[2]);
+            if let Ok(relative) = target.strip_prefix(fs::canonicalize(mount_root)?) {
+                expanded_roots.insert(mount_root.join(relative));
+            }
+        }
+        expanded_roots.insert(target);
+        if expanded_roots.len() > MAX_UNREADABLE_GLOB_MATCHES {
+            return Err(CodexErr::Fatal(
+                "unreadable path expansion exceeded the mount limit".to_string(),
+            ));
+        }
+    }
+    let unreadable_roots = expanded_roots.into_iter().collect::<Vec<_>>();
     let unreadable_paths: HashSet<PathBuf> = unreadable_roots.iter().cloned().collect();
     let mut sorted_writable_roots = writable_roots;
     sorted_writable_roots.sort_by_key(|writable_root| path_depth(writable_root.root.as_path()));
@@ -730,13 +754,20 @@ fn create_filesystem_args(
         }
         let mut nested_unreadable_roots: Vec<PathBuf> = unreadable_roots
             .iter()
-            .filter(|path| path.starts_with(root))
+            .filter(|path| {
+                path.starts_with(root)
+                    || symlink_target
+                        .as_ref()
+                        .is_some_and(|target| path.starts_with(target))
+            })
             .cloned()
             .collect();
         if let Some(target) = &symlink_target {
             nested_unreadable_roots =
                 remap_paths_for_symlink_target(nested_unreadable_roots, root, target);
         }
+        nested_unreadable_roots.sort();
+        nested_unreadable_roots.dedup();
         nested_unreadable_roots.sort_by_key(|path| path_depth(path));
         for unreadable_root in nested_unreadable_roots {
             append_unreadable_root_args(&mut bwrap_args, &unreadable_root, &allowed_write_paths)?;
@@ -1009,7 +1040,7 @@ fn ripgrep_files(
     };
     if !output.status.success() {
         if output.status.code() == Some(1) && output.stderr.is_empty() {
-            return Ok(Vec::new());
+            return glob_files(search_root, globs, max_depth);
         }
 
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -1032,6 +1063,12 @@ fn ripgrep_files(
             }
         })
         .map(AbsolutePathBuf::from_absolute_path_checked)
+        .chain(
+            glob_files(search_root, globs, max_depth)?
+                .into_iter()
+                .filter(|path| path.as_path().is_symlink())
+                .map(Ok),
+        )
         .collect::<io::Result<Vec<_>>>()?;
     Ok(paths)
 }
@@ -1041,6 +1078,9 @@ fn glob_files(
     globs: &[String],
     max_depth: Option<usize>,
 ) -> Result<Vec<AbsolutePathBuf>> {
+    if max_depth == Some(0) {
+        return Ok(Vec::new());
+    }
     let mut builder = GlobSetBuilder::new();
     for glob in globs {
         let glob = GlobBuilder::new(glob)
@@ -2803,9 +2843,11 @@ mod tests {
         let temp_dir = TempDir::new().expect("temp dir");
         let real_root = temp_dir.path().join("real");
         let link_root = temp_dir.path().join("link");
-        let real_secret = real_root.join("secret.env");
+        let real_secret = real_root.join("secret.data");
         std::fs::create_dir_all(&real_root).expect("create real root");
         std::fs::write(&real_secret, "secret").expect("write real secret");
+        std::os::unix::fs::symlink(&real_secret, real_root.join("secret.env"))
+            .expect("create file symlink");
         std::os::unix::fs::symlink(&real_root, &link_root).expect("create symlink");
         let policy =
             default_policy_with_unreadable_glob(format!("{}/**/*.env", link_root.display()));
@@ -2821,6 +2863,28 @@ mod tests {
         .expect("filesystem args");
 
         assert_file_masked(&args.args, &real_secret);
+        assert_eq!(
+            args.args
+                .iter()
+                .filter(|arg| *arg == &path_to_string(&real_secret))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn zero_depth_glob_scan_returns_no_matches() {
+        let root = TempDir::new().expect("temp dir");
+        std::fs::write(root.path().join("secret.env"), "fixture").expect("write fixture");
+        assert_eq!(
+            glob_files(
+                root.path(),
+                &["**/*.env".to_string()],
+                /*max_depth*/ Some(0)
+            )
+            .expect("glob scan"),
+            Vec::new()
+        );
     }
 
     #[test]

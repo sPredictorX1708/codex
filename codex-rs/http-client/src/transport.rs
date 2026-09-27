@@ -84,6 +84,7 @@ impl ReqwestTransport {
             compression: _,
             timeout,
             response_body_limit_bytes: _,
+            stream_setup_timeout: _,
         } = req;
 
         let method = Method::from_bytes(method.as_str().as_bytes()).unwrap_or(Method::GET);
@@ -217,30 +218,38 @@ impl HttpTransport for ReqwestTransport {
 
         let url = req.url.clone();
         let response_body_limit_bytes = req.response_body_limit_bytes;
-        let resp = self.send(req).await?;
+        let timeout = req.stream_setup_timeout.unwrap_or(std::time::Duration::MAX);
+        let resp = tokio::time::timeout(timeout, self.send(req))
+            .await
+            .map_err(|_| TransportError::Timeout)??;
         let status = resp.status();
         let headers = resp.headers().clone();
         if !status.is_success() {
             let retry_after = RetryAfter::from_headers(&headers);
             let body = match response_body_limit_bytes {
-                Some(max_bytes) => match bounded_response_bytes(resp, max_bytes).await {
-                    Ok(bytes) => {
-                        // Reuse the unbounded path's charset, BOM and replacement decoding,
-                        // but only after the body has passed the byte limit.
-                        let mut buffered = http::Response::new(bytes);
-                        *buffered.headers_mut() = headers.clone();
-                        reqwest::Response::from(buffered).text().await.ok()
+                Some(max_bytes) => {
+                    match tokio::time::timeout(timeout, bounded_response_bytes(resp, max_bytes))
+                        .await
+                        .unwrap_or(Err(TransportError::Timeout))
+                    {
+                        Ok(bytes) => {
+                            // Reuse the unbounded path's charset, BOM and replacement decoding,
+                            // but only after the body has passed the byte limit.
+                            let mut buffered = http::Response::new(bytes);
+                            *buffered.headers_mut() = headers.clone();
+                            reqwest::Response::from(buffered).text().await.ok()
+                        }
+                        Err(
+                            error @ (TransportError::ResponseTooLarge { .. }
+                            | TransportError::Policy(_)),
+                        ) => return Err(error),
+                        // A failed diagnostic body must not hide HTTP auth or retry semantics.
+                        Err(_) => None,
                     }
-                    Err(
-                        error @ (TransportError::ResponseTooLarge { .. }
-                        | TransportError::Policy(_)),
-                    ) => return Err(error),
-                    // A failed diagnostic body must not hide HTTP auth or retry semantics.
-                    Err(_) => None,
-                },
-                None => match resp.text().await {
-                    Err(crate::HttpError::Policy(denied)) => return Err(denied.into()),
-                    body => body.ok(),
+                }
+                None => match tokio::time::timeout(timeout, resp.text()).await {
+                    Ok(Err(crate::HttpError::Policy(denied))) => return Err(denied.into()),
+                    body => body.ok().and_then(Result::ok),
                 },
             };
             return Err(TransportError::Http {

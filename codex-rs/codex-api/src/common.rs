@@ -96,6 +96,10 @@ pub enum ResponseEvent {
     /// meaning the server already accounted for past reasoning tokens and the
     /// client should not re-estimate them.
     ServerReasoningIncluded(bool),
+    Usage {
+        response_id: String,
+        token_usage: TokenUsage,
+    },
     Completed {
         response_id: String,
         token_usage: Option<TokenUsage>,

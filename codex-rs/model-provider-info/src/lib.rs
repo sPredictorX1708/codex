@@ -94,6 +94,44 @@ pub const AMAZON_BEDROCK_DEFAULT_BASE_URL: &str =
     "https://bedrock-mantle.us-east-1.api.aws/openai/v1";
 const AMAZON_BEDROCK_MANTLE_CLIENT_AGENT_HEADER: &str = "x-amzn-mantle-client-agent";
 const AMAZON_BEDROCK_MANTLE_CLIENT_AGENT_VALUE: &str = "codex";
+const ASTRA_PROVIDER_NAME: &str = "GPT-6 Astra (local Bedrock Mantle proxy)";
+pub const ASTRA_PROVIDER_ID: &str = "astra";
+pub const ASTRA_DEFAULT_BASE_URL: &str = "http://127.0.0.1:8787/v1";
+pub const ASTRA_BASE_URL_ENV_VAR: &str = "ASTRA_BASE_URL";
+pub const ASTRA_DEFAULT_MODEL_ID: &str = AMAZON_BEDROCK_GPT_6_ASTRA_MODEL_ID;
+const ASTRA_API_KEY_HEADER: &str = "x-api-key";
+pub const ASTRA_API_KEY_ENV_VAR: &str = "ASTRA_API_KEY";
+const FACTORY_SETTINGS_RELATIVE_PATH: &str = ".factory/settings.json";
+
+/// Resolves the local proxy API key: `ASTRA_API_KEY` wins; otherwise reuse the
+/// key Factory Droid already has configured for the same proxy in
+/// `~/.factory/settings.json` so the binary works with no extra setup.
+fn astra_api_key(base_url: &str) -> Option<String> {
+    if let Some(key) = std::env::var(ASTRA_API_KEY_ENV_VAR)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    {
+        return Some(key);
+    }
+    let home = std::env::var_os("HOME")?;
+    let settings_path = Path::new(&home).join(FACTORY_SETTINGS_RELATIVE_PATH);
+    let raw = std::fs::read_to_string(settings_path).ok()?;
+    let settings: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let proxy_origin = base_url.trim_end_matches("/v1").trim_end_matches('/');
+    settings
+        .get("customModels")?
+        .as_array()?
+        .iter()
+        .filter(|model| {
+            model
+                .get("baseUrl")
+                .and_then(serde_json::Value::as_str)
+                .map(|url| url.trim_end_matches('/') == proxy_origin)
+                .unwrap_or(false)
+        })
+        .find_map(|model| model.get("apiKey")?.as_str().map(str::to_string))
+        .filter(|key| !key.trim().is_empty())
+}
 const CHAT_WIRE_API_REMOVED_ERROR: &str = "`wire_api = \"chat\"` is no longer supported.\nHow to fix: set `wire_api = \"responses\"` in your provider config.\nMore info: https://github.com/openai/codex/discussions/7782";
 pub const LEGACY_OLLAMA_CHAT_PROVIDER_ID: &str = "ollama-chat";
 pub const OLLAMA_CHAT_PROVIDER_REMOVED_ERROR: &str = "`ollama-chat` is no longer supported.\nHow to fix: replace `ollama-chat` with `ollama` in `model_provider`, `oss_provider`, or `--local-provider`.\nMore info: https://github.com/openai/codex/discussions/7782";
@@ -442,7 +480,7 @@ other non-default provider fields are not supported"
         let retry = ApiRetryConfig {
             max_attempts: self.request_max_retries(),
             base_delay: Duration::from_millis(200),
-            retry_429: false,
+            retry_429: self.is_astra(),
             retry_5xx: true,
             retry_transport: true,
         };
@@ -598,6 +636,40 @@ other non-default provider fields are not supported"
         provider
     }
 
+    /// Provider for the local `bedrock_mantle_proxy` that fronts Bedrock Mantle
+    /// with an OpenAI-compatible Responses API. The proxy handles AWS auth,
+    /// so the client only sends a static `x-api-key` header.
+    pub fn create_astra_provider() -> ModelProviderInfo {
+        let base_url = std::env::var(ASTRA_BASE_URL_ENV_VAR)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| ASTRA_DEFAULT_BASE_URL.to_string());
+        let http_headers = astra_api_key(&base_url)
+            .map(|key| HashMap::from([(ASTRA_API_KEY_HEADER.to_string(), key.into())]));
+        ModelProviderInfo {
+            name: ASTRA_PROVIDER_NAME.into(),
+            base_url: Some(base_url),
+            model_catalog_url: None,
+            env_key: None,
+            env_key_instructions: None,
+            experimental_bearer_token: None,
+            auth: None,
+            gateway_oauth: None,
+            aws: None,
+            wire_api: WireApi::Responses,
+            query_params: None,
+            http_headers,
+            env_http_headers: None,
+            request_max_retries: None,
+            stream_max_retries: None,
+            stream_idle_timeout_ms: None,
+            websocket_connect_timeout_ms: None,
+            requires_openai_auth: false,
+            supports_websockets: false,
+            supports_standalone_web_search: false,
+        }
+    }
+
     pub fn is_openai(&self) -> bool {
         self.name == OPENAI_PROVIDER_NAME
     }
@@ -630,6 +702,10 @@ other non-default provider fields are not supported"
         self.name == AMAZON_BEDROCK_RUNTIME_PROVIDER_NAME
     }
 
+    pub fn is_astra(&self) -> bool {
+        self.name == ASTRA_PROVIDER_NAME
+    }
+
     pub fn has_command_auth(&self) -> bool {
         self.auth.is_some()
     }
@@ -657,6 +733,7 @@ pub fn built_in_model_providers(
     // `model_providers` in config.toml to add their own providers.
     [
         (OPENAI_PROVIDER_ID, openai_provider),
+        (ASTRA_PROVIDER_ID, P::create_astra_provider()),
         (AMAZON_BEDROCK_PROVIDER_ID, amazon_bedrock_provider),
         (
             AMAZON_BEDROCK_RUNTIME_PROVIDER_ID,

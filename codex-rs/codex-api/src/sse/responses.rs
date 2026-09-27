@@ -192,6 +192,17 @@ where
 }
 
 impl ResponsesStreamEvent {
+    pub(crate) fn failed_response_usage(&self) -> Option<ResponseEvent> {
+        if !matches!(self.kind(), "response.incomplete" | "response.failed") {
+            return None;
+        }
+        let response: ResponseCompleted = serde_json::from_value(self.response.clone()?).ok()?;
+        Some(ResponseEvent::Usage {
+            response_id: response.id,
+            token_usage: response.usage?.into(),
+        })
+    }
+
     pub fn kind(&self) -> &str {
         &self.kind
     }
@@ -685,6 +696,11 @@ async fn process_sse_with_treatment(
             return;
         }
 
+        if let Some(usage) = event.failed_response_usage()
+            && tx_event.send(Ok(usage)).await.is_err()
+        {
+            return;
+        }
         match process_responses_event(event) {
             Ok(Some(event)) => {
                 let is_completed = matches!(event, ResponseEvent::Completed { .. });

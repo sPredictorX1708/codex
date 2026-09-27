@@ -7,6 +7,7 @@ use codex_model_provider_info::AMAZON_BEDROCK_GPT_6_ASTRA_MODEL_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_GPT_6_LUNA_MODEL_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_GPT_6_SOL_MODEL_ID;
 use codex_models_manager::bundled_models_response;
+use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ModelVisibility;
 use codex_protocol::openai_models::ModelsResponse;
@@ -92,6 +93,23 @@ pub(super) fn static_gov_model_catalog() -> ModelsResponse {
     catalog
 }
 
+/// Catalog for the local `astra` provider: the Bedrock Mantle model set with
+/// GPT-6 Astra promoted to the default (lowest priority value wins).
+pub(crate) fn astra_model_catalog() -> ModelsResponse {
+    let mut catalog = static_model_catalog();
+    // The local proxy is only meant to serve GPT-6 Astra: hide the other
+    // Bedrock models from `/model` and make Astra the default at `high`.
+    catalog
+        .models
+        .retain(|model| model.slug == AMAZON_BEDROCK_GPT_6_ASTRA_MODEL_ID);
+    for model in &mut catalog.models {
+        model.priority = 0;
+        model.context_window = Some(400_000);
+        model.default_reasoning_level = Some(ReasoningEffort::High);
+    }
+    catalog
+}
+
 pub(crate) fn normalize_bedrock_catalog(mut catalog: ModelsResponse) -> ModelsResponse {
     for model in &mut catalog.models {
         // Amazon Bedrock currently only supports the implicit "default" tier for GPT models.
@@ -102,6 +120,9 @@ pub(crate) fn normalize_bedrock_catalog(mut catalog: ModelsResponse) -> ModelsRe
         model.web_search_tool_type = WebSearchToolType::Text;
         // Bedrock does not support the response items used by multi-agent V2.
         model.multi_agent_version = Some(MultiAgentVersion::V1);
+        // Bedrock rejects `reasoning.summary` with `unsupported_parameter`.
+        model.supports_reasoning_summary_parameter = false;
+        model.default_reasoning_summary = ReasoningSummary::None;
     }
     catalog
 }

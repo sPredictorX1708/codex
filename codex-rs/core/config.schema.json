@@ -6538,6 +6538,10 @@
       ],
       "description": "Cloud-owned feature settings."
     },
+    "commit_attribution": {
+      "description": "Accepted for compatibility with config files shared with other Codex builds (e.g. `commit_attribution = \"\"`). This build does not add commit attribution, so the value is not used.",
+      "type": "string"
+    },
     "compact_prompt": {
       "description": "Compact prompt used for history compaction.",
       "type": "string"

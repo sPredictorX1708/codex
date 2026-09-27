@@ -47,6 +47,41 @@ impl ToolSearchInfo {
         }
     }
 
+    /// Matches a complete callable name, optionally qualified by its namespace or source.
+    pub fn matches_identifier_query(&self, query: &str) -> bool {
+        let source = self.source_info.as_ref().map(|source| source.name.as_str());
+        let matches = |namespace: &str, name: &str| {
+            let query = query.trim();
+            if query.eq_ignore_ascii_case(name) {
+                return true;
+            }
+            let qualified = query
+                .strip_prefix('+')
+                .and_then(|query| query.split_once(char::is_whitespace))
+                .or_else(|| query.rsplit_once('.'))
+                .or_else(|| query.rsplit_once("__"));
+            let Some((qualifier, callable)) = qualified else {
+                return false;
+            };
+            callable.trim().eq_ignore_ascii_case(name)
+                && (qualifier.eq_ignore_ascii_case(namespace)
+                    || qualifier.eq_ignore_ascii_case(namespace.trim_start_matches("mcp__"))
+                    || source.is_some_and(|source| qualifier.eq_ignore_ascii_case(source)))
+        };
+        match self.entry.spec.as_ref() {
+            ToolSpec::Function(tool) => matches(DEFAULT_FUNCTION_NAMESPACE, &tool.name),
+            ToolSpec::Freeform(tool) => matches(DEFAULT_FUNCTION_NAMESPACE, &tool.name),
+            ToolSpec::Namespace(namespace) => namespace.tools.iter().any(|tool| {
+                let name = match tool {
+                    ResponsesApiNamespaceTool::Function(tool) => &tool.name,
+                    ResponsesApiNamespaceTool::Custom(tool) => &tool.name,
+                };
+                matches(&namespace.name, name)
+            }),
+            ToolSpec::ToolSearch { .. } | ToolSpec::WebSearch { .. } => false,
+        }
+    }
+
     pub fn from_tool_spec(
         spec: ToolSpec,
         source_info: Option<ToolSearchSourceInfo>,

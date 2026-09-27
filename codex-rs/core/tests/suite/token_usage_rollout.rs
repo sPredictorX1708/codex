@@ -28,11 +28,17 @@ fn token_usage_records(path: &std::path::Path) -> Vec<TokenUsageRecord> {
         .collect()
 }
 
+#[test_case::test_case("response.completed"; "completed")]
+#[test_case::test_case("response.incomplete"; "incomplete")]
+#[test_case::test_case("response.failed"; "failed")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn observed_response_usage_accumulates_per_turn_and_thread() -> Result<()> {
+async fn observed_response_usage_accumulates_per_turn_and_thread(first_status: &str) -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let server = start_mock_server().await;
+    let mut first_completion = ev_completed_with_tokens("response-a", /*total_tokens*/ 120);
+    first_completion["type"] = json!(first_status);
+    first_completion["response"]["incomplete_details"] = json!({"reason": "max_output_tokens"});
     let plan_args = json!({
         "plan": [{
             "step": "keep sampling",
@@ -46,7 +52,7 @@ async fn observed_response_usage_accumulates_per_turn_and_thread() -> Result<()>
             sse(vec![
                 ev_response_created("response-a"),
                 ev_function_call("call-a", "update_plan", &plan_args),
-                ev_completed_with_tokens("response-a", /*total_tokens*/ 120),
+                first_completion,
             ]),
             sse(vec![
                 ev_response_created("response-b"),

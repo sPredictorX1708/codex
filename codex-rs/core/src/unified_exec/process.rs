@@ -1,5 +1,6 @@
 #![allow(clippy::module_inception)]
 
+use futures::StreamExt;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -366,7 +367,12 @@ impl UnifiedExecProcess {
             stderr_rx,
             mut exit_rx,
         } = spawned;
-        let output_rx = codex_utils_pty::combine_output_receivers(stdout_rx, stderr_rx);
+        let stream = |rx| {
+            futures::stream::unfold(rx, |mut rx: tokio::sync::mpsc::Receiver<Vec<u8>>| async {
+                rx.recv().await.map(|chunk| (chunk, rx))
+            })
+        };
+        let output_rx = futures::stream::select(stream(stdout_rx), stream(stderr_rx));
         let mut managed = Self::new(
             ProcessHandle::Local(Box::new(process_handle)),
             Some(sandbox_type),
@@ -617,7 +623,7 @@ impl UnifiedExecProcess {
     }
 
     fn spawn_local_output_task(
-        mut receiver: tokio::sync::broadcast::Receiver<Vec<u8>>,
+        receiver: impl futures::Stream<Item = Vec<u8>> + Send + 'static,
         output_handles: OutputHandles,
         output_tx: broadcast::Sender<Vec<u8>>,
     ) -> JoinHandle<()> {
@@ -629,21 +635,21 @@ impl UnifiedExecProcess {
             ..
         } = output_handles;
         tokio::spawn(async move {
+            tokio::pin!(receiver);
             let _output_task_guard = OutputTaskGuard {
                 output_closed: Arc::clone(&output_closed),
                 output_closed_notify: Arc::clone(&output_closed_notify),
             };
             loop {
-                match receiver.recv().await {
-                    Ok(chunk) => {
+                match receiver.next().await {
+                    Some(chunk) => {
                         let mut guard = output_buffer.lock().await;
                         guard.push_chunk(&chunk);
                         drop(guard);
                         let _ = output_tx.send(chunk);
                         output_notify.notify_waiters();
                     }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    None => {
                         output_closed.store(true, Ordering::Release);
                         output_closed_notify.notify_waiters();
                         break;

@@ -276,8 +276,10 @@ async fn wait_for_turn_completion(test: &TestCodex) {
 }
 
 /// HTTP overloads use the upstream header before another HTTP request.
+#[test_case::test_case(503; "overload_uses_retry_after")]
+#[test_case::test_case(429; "astra_throttling_uses_retry_after")]
 #[tokio::test(flavor = "current_thread")]
-async fn responses_http_uses_retry_after() -> Result<()> {
+async fn responses_http_retries_with_provider_delay(status: u16) -> Result<()> {
     skip_if_no_network!(Ok(()));
 
     let mut telemetry = RetryTelemetryCapture::install();
@@ -285,7 +287,7 @@ async fn responses_http_uses_retry_after() -> Result<()> {
     let response_mock = responses::mount_response_sequence(
         &server,
         vec![
-            ResponseTemplate::new(503)
+            ResponseTemplate::new(status)
                 .insert_header("Retry-After", "1")
                 .set_body_json(json!({ "error": { "code": "server_is_overloaded" } })),
             responses::sse_response(responses::sse(vec![
@@ -296,7 +298,12 @@ async fn responses_http_uses_retry_after() -> Result<()> {
     )
     .await;
     let test = test_codex()
-        .with_config(|config| {
+        .with_config(move |config| {
+            if status == 429 {
+                config.model_provider.name =
+                    codex_model_provider_info::ModelProviderInfo::create_astra_provider().name;
+                config.model = Some("openai.gpt-6-astra".into());
+            }
             config.model_provider.request_max_retries = Some(1);
             config.model_provider.stream_max_retries = Some(0);
         })

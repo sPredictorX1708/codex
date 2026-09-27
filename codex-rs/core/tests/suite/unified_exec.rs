@@ -69,6 +69,9 @@ use tokio::time::Duration;
 
 const UNIFIED_EXEC_LAGGED_OUTPUT_TIMEOUT: Duration = Duration::from_secs(30);
 
+#[path = "completion_tests.rs"]
+mod completion_tests;
+
 fn extract_output_text(item: &Value) -> Option<&str> {
     item.get("output").and_then(|value| match value {
         Value::String(text) => Some(text.as_str()),
@@ -3321,21 +3324,23 @@ async fn unified_exec_timeout_and_followup_poll() -> Result<()> {
     Ok(())
 }
 
+#[test_case::test_case(false; "managed")]
+#[test_case::test_case(true; "explicit_completion")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn managed_unified_exec_disable_runs_commands_without_retained_authority() -> Result<()> {
+async fn completion_timeout_terminates_command(unified_exec: bool) -> Result<()> {
     skip_if_target_windows!(Ok(()), "uses a POSIX-only command fixture");
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
 
     let server = start_mock_server().await;
     let mut builder = test_codex().with_cloud_config_bundle(
-        CloudConfigBundleFixture::loader_with_enterprise_requirement(
+        CloudConfigBundleFixture::loader_with_enterprise_requirement(format!(
             r#"
 [features]
-unified_exec = false
+unified_exec = {unified_exec}
 shell_tool = true
-"#,
-        ),
+"#
+        )),
     );
     let test = builder.build_with_auto_env(&server).await?;
     let late_marker = test.config.cwd.join("one-shot-late-marker");
@@ -3386,21 +3391,23 @@ shell_tool = true
     Ok(())
 }
 
+#[test_case::test_case(false; "managed")]
+#[test_case::test_case(true; "explicit_completion")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn managed_one_shot_command_is_terminated_when_the_turn_is_interrupted() -> Result<()> {
+async fn completion_command_is_terminated_when_interrupted(unified_exec: bool) -> Result<()> {
     skip_if_no_network!(Ok(()));
     skip_if_sandbox!(Ok(()));
     skip_if_target_windows!(Ok(()), "uses a POSIX command and process checks");
 
     let server = start_mock_server().await;
     let mut builder = test_codex().with_cloud_config_bundle(
-        CloudConfigBundleFixture::loader_with_enterprise_requirement(
+        CloudConfigBundleFixture::loader_with_enterprise_requirement(format!(
             r#"
 [features]
-unified_exec = false
+unified_exec = {unified_exec}
 shell_tool = true
-"#,
-        ),
+"#
+        )),
     );
     let test = builder.build_with_auto_env(&server).await?;
     let temp_dir = tempfile::tempdir()?;
@@ -3447,10 +3454,12 @@ shell_tool = true
     Ok(())
 }
 
+#[test_case::test_case(None; "resumable")]
+#[test_case::test_case(Some(10000); "completion")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 // Skipped on arm because the ctor logic to handle arg0 doesn't work on ARM
 #[cfg(not(target_arch = "arm"))]
-async fn unified_exec_formats_large_output_summary() -> Result<()> {
+async fn unified_exec_formats_large_output_summary(timeout_ms: Option<u64>) -> Result<()> {
     // TODO(anp): Remove after output fixtures use target-native commands.
     skip_if_target_windows!(
         Ok(()),
@@ -3483,6 +3492,7 @@ PY
     let call_id = "uexec-large-output";
     let args = serde_json::json!({
         "cmd": script,
+        "timeout_ms": timeout_ms,
         "max_output_tokens": 100,
         "yield_time_ms": 3_000,
     });
@@ -3724,7 +3734,12 @@ async fn unified_exec_enforces_glob_deny_read_policy() -> Result<()> {
         )
         .await?;
 
-    wait_for_event(&codex, |event| matches!(event, EventMsg::TurnComplete(_))).await;
+    let completed = wait_for_event_match(&codex, |event| match event {
+        EventMsg::TurnComplete(completed) => Some(completed.clone()),
+        _ => None,
+    })
+    .await;
+    assert_eq!(completed.error, None, "glob-denial turn failed");
 
     let requests = request_log.requests();
     assert!(!requests.is_empty(), "expected at least one POST request");

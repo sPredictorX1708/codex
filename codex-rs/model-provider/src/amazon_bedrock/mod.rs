@@ -42,6 +42,7 @@ use crate::provider::RemoteCompactionSupport;
 use crate::shared_state::process_shared_state;
 use auth::resolve_provider_auth as resolve_bedrock_provider_auth;
 pub(crate) use auth_refresh::AwsAuthRecovery;
+pub(crate) use catalog::astra_model_catalog;
 use catalog::normalize_bedrock_catalog;
 use catalog::static_gov_model_catalog;
 pub(crate) use catalog::static_model_catalog;

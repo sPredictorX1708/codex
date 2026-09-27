@@ -386,6 +386,7 @@ struct ConfiguredModelProvider {
     auth_manager: Option<Arc<AuthManager>>,
     // Construct eagerly; report setup failures when auth is requested because the factory is infallible.
     gateway_auth_manager: Option<Result<Arc<GatewayAuthManager>, String>>,
+    static_catalog: Option<ModelsResponse>,
 }
 
 impl ConfiguredModelProvider {
@@ -394,20 +395,51 @@ impl ConfiguredModelProvider {
         auth_manager: Option<Arc<AuthManager>>,
         gateway_auth_manager: Option<Result<Arc<GatewayAuthManager>, String>>,
     ) -> Self {
+        let static_catalog = info
+            .is_astra()
+            .then(crate::amazon_bedrock::astra_model_catalog);
         Self {
             info,
             auth_manager,
             gateway_auth_manager,
+            static_catalog,
         }
+    }
+
+    fn effective_catalog(
+        &self,
+        config_model_catalog: Option<ModelsResponse>,
+    ) -> Option<ModelsResponse> {
+        config_model_catalog.or_else(|| self.static_catalog.clone())
     }
 }
 
 impl ModelProvider for ConfiguredModelProvider {
+    fn map_api_error(&self, error: ApiError) -> CodexErr {
+        if self.info.is_astra()
+            && let ApiError::Transport(TransportError::Http { status, .. }) = &error
+            && *status == http::StatusCode::NOT_FOUND
+        {
+            return CodexErr::InvalidRequest(codex_api::map_api_error(error).to_string());
+        }
+        codex_api::map_api_error(error)
+    }
+
     fn info(&self) -> &ModelProviderInfo {
         &self.info
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
+        if self.info.is_astra() {
+            return ProviderCapabilities {
+                namespace_tools: true,
+                image_generation: false,
+                web_search: false,
+                external_web_access: false,
+                remote_compaction: RemoteCompactionSupport::Unsupported,
+            };
+        }
+
         let remote_compaction = if self.info.is_openai()
             || is_azure_responses_provider(&self.info.name, self.info.base_url.as_deref())
         {
@@ -548,7 +580,7 @@ impl ModelProvider for ConfiguredModelProvider {
         codex_home: PathBuf,
         config_model_catalog: Option<ModelsResponse>,
     ) -> SharedModelsManager {
-        match config_model_catalog {
+        match self.effective_catalog(config_model_catalog) {
             Some(model_catalog) => Arc::new(StaticModelsManager::new(
                 self.auth_manager.clone(),
                 model_catalog,
@@ -572,7 +604,7 @@ impl ModelProvider for ConfiguredModelProvider {
         &self,
         config_model_catalog: Option<ModelsResponse>,
     ) -> SharedModelsManager {
-        match config_model_catalog {
+        match self.effective_catalog(config_model_catalog) {
             Some(model_catalog) => Arc::new(StaticModelsManager::new(
                 self.auth_manager.clone(),
                 model_catalog,
@@ -596,7 +628,7 @@ impl ModelProvider for ConfiguredModelProvider {
         config_model_catalog: Option<ModelsResponse>,
         cache: Arc<dyn ModelsCache>,
     ) -> SharedModelsManager {
-        match config_model_catalog {
+        match self.effective_catalog(config_model_catalog) {
             Some(model_catalog) => Arc::new(StaticModelsManager::new(
                 self.auth_manager.clone(),
                 model_catalog,
@@ -653,6 +685,23 @@ mod tests {
     use super::*;
     use crate::auth::AgentIdentitySessionFallback;
     use crate::shared_state::process_shared_state;
+
+    #[test]
+    fn astra_model_not_found_is_not_retryable() {
+        let provider = create_model_provider(
+            ModelProviderInfo::create_astra_provider(),
+            /*auth_manager*/ None,
+        );
+        let error = provider.map_api_error(ApiError::Transport(TransportError::Http {
+            status: http::StatusCode::NOT_FOUND,
+            url: Some("http://localhost/v1/responses".into()),
+            headers: None,
+            body: Some("model not found".into()),
+            retry_after: None,
+        }));
+        assert!(error.retry_delay(/*retry_count*/ 0).is_none());
+        assert!(error.to_string().contains("model not found"));
+    }
 
     fn provider_info_with_command_auth() -> ModelProviderInfo {
         ModelProviderInfo {

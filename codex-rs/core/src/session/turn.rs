@@ -2850,6 +2850,24 @@ async fn try_run_sampling_request(
                     .refresh_if_new_etag(etag, turn_context.config.http_client_factory())
                     .await;
             }
+            ResponseEvent::Usage {
+                response_id,
+                token_usage,
+            } => {
+                sess.record_response_token_usage(&turn_context, &response_id, Some(&token_usage))
+                    .await;
+                let budget_result = sess
+                    .record_token_usage_info(
+                        &turn_context,
+                        &step_context.settings,
+                        Some(&token_usage),
+                    )
+                    .await;
+                should_emit_token_count = true;
+                if let Err(err) = budget_result {
+                    break Err(err);
+                }
+            }
             ResponseEvent::Completed {
                 response_id,
                 token_usage,

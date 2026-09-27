@@ -310,7 +310,12 @@ impl ExecCommandHandler {
             ..
         } = args;
         let completion_timeout = match self.lifetime {
-            ExecCommandLifetime::Interactive => None,
+            ExecCommandLifetime::Interactive if tty && timeout_ms.is_some() => {
+                return Err(FunctionCallError::RespondToModel(
+                    "timeout_ms requires tty=false; omit it for an interactive terminal.".into(),
+                ));
+            }
+            ExecCommandLifetime::Interactive => timeout_ms.map(Duration::from_millis),
             ExecCommandLifetime::OneShot => {
                 tty = false;
                 Some(Duration::from_millis(

@@ -84,6 +84,8 @@ pub struct Request {
     /// Maximum accepted response-body bytes, including streaming and error bodies.
     /// `None` leaves the response unbounded.
     pub response_body_limit_bytes: Option<usize>,
+    /// Bounds stream establishment and error-body collection separately.
+    pub stream_setup_timeout: Option<Duration>,
 }
 
 impl Request {
@@ -96,6 +98,7 @@ impl Request {
             compression: RequestCompression::None,
             timeout: None,
             response_body_limit_bytes: None,
+            stream_setup_timeout: None,
         }
     }
 

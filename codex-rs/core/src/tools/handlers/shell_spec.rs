@@ -56,6 +56,12 @@ pub(crate) fn create_exec_command_tool_with_environment_id(
             JsonSchema::number(Some(yield_time_ms_description.to_string())),
         ),
         (
+            "timeout_ms".to_string(),
+            JsonSchema::number(Some(
+                "For noninteractive builds or tests, wait for completion without polling, up to this runtime limit. Terminates on timeout or cancellation. Overrides yield_time_ms; incompatible with tty=true. Omit for resumable terminals.".to_string(),
+            )),
+        ),
+        (
             "max_output_tokens".to_string(),
             JsonSchema::number(Some(
                 "Output token budget. Defaults to 10000 tokens; larger requests may be capped by policy.".to_string(),

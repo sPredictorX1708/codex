@@ -66,6 +66,56 @@ fn shared_search_specs_preserve_results_and_release_the_source() {
 }
 
 #[test]
+fn identifier_queries_match_callables_without_matching_description_words() {
+    let spec = ToolSpec::Namespace(ResponsesApiNamespace {
+        name: "mcp__archive".to_string(),
+        description: "ReadArchivePages and policy records".to_string(),
+        tools: vec![ResponsesApiNamespaceTool::Function(ResponsesApiTool {
+            name: "ReadArchivePages".to_string(),
+            description: "Read archived pages with GetPolicyRecord.".to_string(),
+            strict: false,
+            defer_loading: None,
+            parameters: JsonSchema::object(
+                BTreeMap::new(),
+                /*required*/ None,
+                /*additional_properties*/ None,
+            ),
+            output_schema: None,
+        })],
+    });
+    let info = ToolSearchInfo::from_tool_spec(
+        spec,
+        Some(ToolSearchSourceInfo {
+            name: "archive-service".to_string(),
+            description: None,
+        }),
+    )
+    .unwrap();
+    for query in [
+        "ReadArchivePages",
+        "readarchivepages",
+        " mcp__archive.ReadArchivePages ",
+        "mcp__archive__ReadArchivePages",
+        "+archive ReadArchivePages",
+        "+ARCHIVE-SERVICE readarchivepages",
+        "+mcp__archive\tReadArchivePages",
+    ] {
+        assert!(info.matches_identifier_query(query), "{query}");
+    }
+    for query in [
+        "",
+        "archive",
+        "GetPolicyRecord",
+        "read archived pages",
+        "+other ReadArchivePages",
+        "+archive ReadArchivePages policy",
+        "ReadArchivePages policy",
+    ] {
+        assert!(!info.matches_identifier_query(query), "{query}");
+    }
+}
+
+#[test]
 fn top_level_function_search_results_use_the_default_namespace() {
     let function_tool = ResponsesApiTool {
         name: "lookup_order".to_string(),
@@ -85,6 +135,8 @@ fn top_level_function_search_results_use_the_default_namespace() {
     )
     .expect("top-level function should be searchable");
 
+    assert!(search_info.matches_identifier_query("lookup_order"));
+    assert!(search_info.matches_identifier_query("functions.lookup_order"));
     assert_eq!(
         (
             search_info.entry.search_text.clone(),
@@ -123,6 +175,8 @@ fn top_level_custom_tools_are_searchable() {
     )
     .expect("top-level custom tool should be searchable");
 
+    assert!(search_info.matches_identifier_query("apply_patch"));
+    assert!(search_info.matches_identifier_query("+functions apply_patch"));
     assert_eq!(
         (
             search_info.entry.search_text.clone(),

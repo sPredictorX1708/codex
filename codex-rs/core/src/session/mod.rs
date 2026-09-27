@@ -4726,6 +4726,16 @@ impl Session {
             }),
         )
         .await;
+        self.record_response_token_usage(turn_context, response_id, usage)
+            .await;
+    }
+
+    pub(crate) async fn record_response_token_usage(
+        &self,
+        turn_context: &TurnContext,
+        response_id: &str,
+        usage: Option<&TokenUsage>,
+    ) {
         let Some(usage) = usage else {
             return;
         };
