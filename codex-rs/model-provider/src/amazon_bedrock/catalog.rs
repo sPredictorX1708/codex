@@ -264,6 +264,7 @@ mod tests {
         expected.default_service_tier = None;
         expected.web_search_tool_type = WebSearchToolType::Text;
         expected.multi_agent_version = Some(MultiAgentVersion::V1);
+        expected.supports_reasoning_summary_parameter = false;
 
         assert_eq!(
             normalize_bedrock_catalog(ModelsResponse {
@@ -276,20 +277,12 @@ mod tests {
     }
 
     #[test]
-    fn gpt_5_bedrock_models_do_not_include_availability_nux_or_upgrade() {
-        let catalog = static_model_catalog();
-
-        for model in catalog.models {
-            assert_eq!((model.availability_nux, model.upgrade), (None, None));
-        }
-    }
-
-    #[test]
-    fn gpt_5_bedrock_models_are_visible() {
-        let catalog = static_model_catalog();
-
-        for model in catalog.models {
-            assert_eq!(model.visibility, ModelVisibility::List);
+    fn gpt_5_bedrock_models_are_visible_without_availability_nux_or_upgrade() {
+        for model in static_model_catalog().models {
+            assert_eq!(
+                (model.visibility, model.availability_nux, model.upgrade),
+                (ModelVisibility::List, None, None)
+            );
         }
     }
 
@@ -351,6 +344,7 @@ mod tests {
             expected.default_service_tier = None;
             expected.web_search_tool_type = WebSearchToolType::Text;
             expected.multi_agent_version = Some(MultiAgentVersion::V1);
+            expected.supports_reasoning_summary_parameter = false;
 
             assert_eq!(
                 catalog.models.iter().find(|model| model.slug == slug),
