@@ -3,6 +3,7 @@
 //! This crate defines the feature registry plus the logic used to resolve an
 //! effective feature set from config-like inputs.
 
+use codex_protocol::openai_models::ReasoningEffort;
 use codex_protocol::protocol::Event;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::WarningEvent;
@@ -205,6 +206,11 @@ pub enum Feature {
     Collab,
     /// Enable task-path-based multi-agent routing.
     MultiAgentV2,
+    /// Keep sampling through reasoning and commentary boundaries when agent mail arrives.
+    /// Pending mail is delivered at the next normal input boundary instead.
+    DeferMailboxPreemption,
+    /// Preempt responses and yield foreground code-mode observations on new user input.
+    InstantInterrupt,
     /// Enable shared discussion tools for an agent tree.
     AgentMessageBoard,
     /// Removed compatibility flag retained as a no-op.
@@ -506,6 +512,11 @@ impl Features {
 
     pub fn enabled(&self, f: Feature) -> bool {
         self.enabled.contains(&f)
+    }
+
+    /// Returns whether persistent execution is enabled for the selected effort.
+    pub fn persistent_mode_enabled(&self, reasoning_effort: Option<&ReasoningEffort>) -> bool {
+        reasoning_effort == Some(&ReasoningEffort::Persistent)
     }
 
     pub fn apps_enabled_for_auth(&self, has_chatgpt_auth: bool) -> bool {
@@ -1074,6 +1085,12 @@ pub const FEATURES: &[FeatureSpec] = &[
         default_enabled: false,
     },
     FeatureSpec {
+        id: Feature::InstantInterrupt,
+        key: "instant_interrupt",
+        stage: Stage::UnderDevelopment,
+        default_enabled: false,
+    },
+    FeatureSpec {
         id: Feature::CodeModeOnly,
         key: "code_mode_only",
         stage: Stage::UnderDevelopment,
@@ -1196,8 +1213,8 @@ pub const FEATURES: &[FeatureSpec] = &[
     FeatureSpec {
         id: Feature::WriteStdinApproval,
         key: "write_stdin_approval",
-        stage: Stage::UnderDevelopment,
-        default_enabled: false,
+        stage: Stage::Stable,
+        default_enabled: true,
     },
     FeatureSpec {
         id: Feature::CodexHooks,
@@ -1315,6 +1332,12 @@ pub const FEATURES: &[FeatureSpec] = &[
         id: Feature::MultiAgentV2,
         key: "multi_agent_v2",
         stage: Stage::Stable,
+        default_enabled: false,
+    },
+    FeatureSpec {
+        id: Feature::DeferMailboxPreemption,
+        key: "defer_mailbox_preemption",
+        stage: Stage::UnderDevelopment,
         default_enabled: false,
     },
     FeatureSpec {
