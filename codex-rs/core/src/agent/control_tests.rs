@@ -3774,6 +3774,245 @@ async fn spawn_agent_fork_last_n_turns_strips_parent_usage_hints() {
         .expect("parent shutdown should submit");
 }
 
+const HEADLESS_SESSION_FRAGMENT: &str =
+    "<headless_session>\nThis session runs unattended through `codex exec`.\n</headless_session>";
+
+fn developer_message(texts: &[&str]) -> ResponseItem {
+    ResponseItem::Message {
+        id: None,
+        role: "developer".to_string(),
+        content: texts
+            .iter()
+            .map(|text| ContentItem::InputText {
+                text: (*text).to_string(),
+            })
+            .collect(),
+        phase: None,
+        internal_chat_message_metadata_passthrough: None,
+    }
+}
+
+/// Headless-session guidance is addressed to the root agent of a `codex exec` run. A full-history
+/// fork must drop it from inherited messages, compacted replacement history, and the inherited
+/// world-state baseline, because the child never renders that section and so could not retire it.
+#[tokio::test]
+async fn spawn_agent_full_fork_drops_parent_headless_session_guidance() {
+    let harness = AgentControlHarness::new().await;
+    let new_thread = harness
+        .manager
+        .start_thread(StartThreadOptions::new(harness.config.clone()))
+        .await
+        .expect("start parent thread");
+    let parent_thread_id = new_thread.thread_id;
+    let parent_thread = new_thread.thread;
+    let turn_context = parent_thread.session.new_default_turn().await;
+    let parent_spawn_call_id = "spawn-call-headless-session".to_string();
+    let world_state = serde_json::json!({ "headless_session": true })
+        .as_object()
+        .cloned()
+        .expect("world-state fixture should be an object");
+    parent_thread
+        .session
+        .persist_rollout_items(&[
+            RolloutItem::Compacted(CompactedItem {
+                message: String::new(),
+                replacement_history: Some(vec![
+                    user_message("compacted parent summary").into(),
+                    developer_message(&[
+                        HEADLESS_SESSION_FRAGMENT,
+                        "Preserved compacted developer context.",
+                    ])
+                    .into(),
+                ]),
+                retained_context: None,
+                guardian_history: None,
+                mcp_resource_origins: None,
+                window_number: None,
+                first_window_id: None,
+                previous_window_id: None,
+                window_id: None,
+                compaction_response_id: None,
+                latest_token_usage_record: None,
+                resume_metadata: None,
+            }),
+            RolloutItem::WorldState(codex_protocol::protocol::WorldStateItem::full(world_state)),
+            rollout_response_item(developer_message(&[
+                HEADLESS_SESSION_FRAGMENT,
+                "Preserved top-level developer context.",
+            ])),
+            rollout_response_item(developer_message(&[HEADLESS_SESSION_FRAGMENT])),
+            RolloutItem::TurnContext(turn_context.to_turn_context_item()),
+            rollout_response_item(spawn_agent_call(&parent_spawn_call_id)),
+        ])
+        .await;
+    parent_thread
+        .session
+        .ensure_rollout_materialized(PersistContext::Standard)
+        .await;
+    parent_thread
+        .session
+        .flush_rollout()
+        .await
+        .expect("parent rollout should flush");
+
+    let child_thread_id = harness
+        .spawn_anonymous_child(
+            parent_thread_id,
+            SpawnAgentOptions {
+                fork_parent_spawn_call_id: Some(parent_spawn_call_id),
+                fork_mode: Some(SpawnAgentForkMode::FullHistory),
+                ..Default::default()
+            },
+        )
+        .await;
+    let child_thread = harness
+        .manager
+        .get_thread(child_thread_id)
+        .await
+        .expect("child thread should be registered");
+    let history = child_thread.session.clone_history().await;
+    assert!(
+        !history_contains_text(history.raw_items(), "<headless_session>"),
+        "a forked child must not inherit the root's headless-session guidance"
+    );
+    assert!(
+        history_contains_text(history.raw_items(), "compacted parent summary"),
+        "full fork should keep compacted parent context"
+    );
+    assert!(
+        history_contains_text(
+            history.raw_items(),
+            "Preserved compacted developer context."
+        ),
+        "full fork should keep unrelated compacted developer fragments"
+    );
+    assert!(
+        history_contains_text(
+            history.raw_items(),
+            "Preserved top-level developer context."
+        ),
+        "full fork should keep unrelated developer fragments"
+    );
+
+    child_thread.ensure_rollout_materialized().await;
+    child_thread
+        .flush_rollout()
+        .await
+        .expect("child rollout should flush");
+    let rollout_path = child_thread
+        .rollout_path()
+        .expect("child rollout should exist");
+    let inherited_world_states = std::fs::read_to_string(&rollout_path)
+        .expect("read child rollout")
+        .lines()
+        .map(|line| codex_rollout::parse_rollout_line(line).expect("parse rollout line"))
+        .filter_map(|line| match line.item {
+            RolloutItem::WorldState(world_state) => Some(world_state),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !inherited_world_states.is_empty(),
+        "full fork should keep the parent's world-state baseline"
+    );
+    assert!(
+        inherited_world_states
+            .iter()
+            .all(|world_state| !world_state.state.contains_key("headless_session")),
+        "a forked child must not inherit the root's headless-session snapshot: {inherited_world_states:?}"
+    );
+
+    let _ = harness
+        .control
+        .shutdown_live_agent(child_thread_id)
+        .await
+        .expect("child shutdown should submit");
+    let _ = parent_thread
+        .submit(Op::Shutdown {})
+        .await
+        .expect("parent shutdown should submit");
+}
+
+#[tokio::test]
+async fn spawn_agent_fork_last_n_turns_drops_parent_headless_session_guidance() {
+    let harness = AgentControlHarness::new().await;
+    let new_thread = harness
+        .manager
+        .start_thread(StartThreadOptions::new(harness.config.clone()))
+        .await
+        .expect("start parent thread");
+    let parent_thread_id = new_thread.thread_id;
+    let parent_thread = new_thread.thread;
+    parent_thread
+        .inject_response_items(vec![user_message("parent task")])
+        .await
+        .expect("inject parent task");
+    let turn_context = parent_thread.session.new_default_turn().await;
+    let parent_spawn_call_id = "spawn-call-last-n-headless-session".to_string();
+    parent_thread
+        .session
+        .record_conversation_items(
+            turn_context.as_ref(),
+            turn_context.model_info(),
+            &[
+                developer_message(&[
+                    HEADLESS_SESSION_FRAGMENT,
+                    "Preserved bounded developer context.",
+                ]),
+                spawn_agent_call(&parent_spawn_call_id),
+            ],
+        )
+        .await;
+    parent_thread
+        .session
+        .ensure_rollout_materialized(PersistContext::Standard)
+        .await;
+    parent_thread
+        .session
+        .flush_rollout()
+        .await
+        .expect("parent rollout should flush");
+
+    let child_thread_id = harness
+        .spawn_anonymous_child(
+            parent_thread_id,
+            SpawnAgentOptions {
+                fork_parent_spawn_call_id: Some(parent_spawn_call_id),
+                fork_mode: Some(SpawnAgentForkMode::LastNTurns(2)),
+                ..Default::default()
+            },
+        )
+        .await;
+    let child_thread = harness
+        .manager
+        .get_thread(child_thread_id)
+        .await
+        .expect("child thread should be registered");
+    let history = child_thread.session.clone_history().await;
+    assert!(
+        history_contains_text(history.raw_items(), "parent task"),
+        "bounded fork should retain the requested recent parent turn"
+    );
+    assert!(
+        !history_contains_text(history.raw_items(), "<headless_session>"),
+        "a bounded fork must not inherit the root's headless-session guidance"
+    );
+    assert!(
+        history_contains_text(history.raw_items(), "Preserved bounded developer context."),
+        "bounded fork should preserve unrelated developer fragments"
+    );
+
+    let _ = harness
+        .control
+        .shutdown_live_agent(child_thread_id)
+        .await
+        .expect("child shutdown should submit");
+    let _ = parent_thread
+        .submit(Op::Shutdown {})
+        .await
+        .expect("parent shutdown should submit");
+}
+
 #[tokio::test]
 async fn spawn_agent_respects_legacy_max_threads_alias() {
     let max_threads = 1usize;

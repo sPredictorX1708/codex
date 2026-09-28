@@ -1,0 +1,37 @@
+---
+source: core/src/context/world_state/headless_session_tests.rs
+expression: "render_section_cases(&[(Absent, Known(&interactive)),\n(Absent, Known(&headless)), (Known(&interactive), Known(&interactive)),\n(Known(&interactive), Known(&headless)), (Known(&headless), Known(&headless)),\n(Known(&headless), Known(&interactive)), (Unknown, Known(&interactive)),\n(Unknown, Known(&headless)),])"
+---
+Absent -> false
+None
+
+Absent -> true (role - developer)
+<headless_session>
+This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work, and no user message or answer can arrive before the turn ends. This replaces the intermediate commentary guidance: do not send an opening commentary message or progress updates. Call tools directly, and put everything the user needs in the final answer.
+</headless_session>
+
+false -> false
+None
+
+false -> true (role - developer)
+<headless_session>
+This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work, and no user message or answer can arrive before the turn ends. This replaces the intermediate commentary guidance: do not send an opening commentary message or progress updates. Call tools directly, and put everything the user needs in the final answer.
+</headless_session>
+
+true -> true
+None
+
+true -> false (role - developer)
+<headless_session>
+The previously provided headless-session instructions no longer apply.
+</headless_session>
+
+Unknown -> false (role - developer)
+<headless_session>
+The previously provided headless-session instructions no longer apply.
+</headless_session>
+
+Unknown -> true (role - developer)
+<headless_session>
+This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work, and no user message or answer can arrive before the turn ends. This replaces the intermediate commentary guidance: do not send an opening commentary message or progress updates. Call tools directly, and put everything the user needs in the final answer.
+</headless_session>

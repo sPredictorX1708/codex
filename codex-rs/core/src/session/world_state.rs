@@ -11,6 +11,7 @@ use crate::context::world_state::CompactPermissionsState;
 use crate::context::world_state::ContextWindowGuidanceState;
 use crate::context::world_state::EnvironmentsInstructionsState;
 use crate::context::world_state::EnvironmentsState;
+use crate::context::world_state::HeadlessSessionState;
 use crate::context::world_state::ManagedDeveloperInstructionsState;
 use crate::context::world_state::ModelInstructionsState;
 use crate::context::world_state::MultiAgentModeState;
@@ -206,6 +207,11 @@ impl Session {
                 model_messages.collaboration_modes(),
                 turn_context.config.update_plan_enabled,
                 turn_context.config.model_catalog.is_some(),
+            ));
+        }
+        if !turn_context.session_source.is_non_root_agent() {
+            world_state.add_section(HeadlessSessionState::new(
+                turn_context.app_server_client_name.as_deref(),
             ));
         }
         if !crate::guardian::is_basic_session_source(&turn_context.session_source) {

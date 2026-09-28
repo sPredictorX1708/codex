@@ -20,7 +20,10 @@ use crate::context::DeveloperInstructions;
 use crate::context::ManagedDeveloperInstructions;
 use crate::context::MultiAgentModeInstructions;
 use crate::context::MultiAgentRoleInstructions;
+use crate::context::world_state::HeadlessSessionInstructions;
+use crate::context::world_state::HeadlessSessionState;
 use crate::context::world_state::PersistentModeState;
+use crate::context::world_state::WorldStateSection;
 use crate::session::multi_agents::resolve_usage_hints;
 use codex_context_fragments::set_annotated_content;
 use codex_context_fragments::to_annotated_content;
@@ -147,6 +150,7 @@ fn retain_forked_developer_message(item: &mut ResponseItem, usage_hint_texts: &[
             || text
                 .starts_with(crate::guardian::AUTO_REVIEW_DENIED_ACTION_APPROVAL_DEVELOPER_PREFIX)
             || MultiAgentModeInstructions::matches_text(text)
+            || HeadlessSessionInstructions::matches_text(text)
             || CurrentTimeReminder::matches_text(text)
             || CurrentTimeUnavailable::matches_text(text)
             || usage_hint_texts
@@ -1158,6 +1162,9 @@ impl LocalAgentControl {
                     true
                 }
                 RolloutItem::WorldState(world_state) => {
+                    // Children never render the headless-session section, so an inherited
+                    // snapshot would only describe guidance they no longer carry.
+                    world_state.state.remove(HeadlessSessionState::ID);
                     if multi_agent_version == MultiAgentVersion::V2 {
                         world_state.state.remove("multi_agent_usage_hint");
                     }

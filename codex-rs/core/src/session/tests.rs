@@ -10192,6 +10192,87 @@ async fn build_initial_context_describes_active_realtime_state() {
     );
 }
 
+async fn headless_session_world_state(
+    app_server_client_name: Option<&str>,
+    session_source: SessionSource,
+) -> (WorldState, Vec<ResponseItem>) {
+    let (session, mut turn_context) = make_session_and_context().await;
+    turn_context.app_server_client_name = app_server_client_name.map(str::to_string);
+    turn_context.session_source = session_source;
+    let turn_context = Arc::new(turn_context);
+    let world_state = build_world_state_from_turn_context(&session, &turn_context).await;
+    let initial_context = build_initial_context(&session, &turn_context).await;
+    (world_state, initial_context)
+}
+
+fn headless_session_texts(items: &[ResponseItem]) -> Vec<&str> {
+    developer_input_texts(items)
+        .into_iter()
+        .filter(|text| text.starts_with("<headless_session>"))
+        .collect()
+}
+
+#[tokio::test]
+async fn headless_session_instructions_follow_the_current_client_not_the_thread_origin() {
+    let (_, exec_client_on_interactive_thread) = headless_session_world_state(
+        Some(crate::context::CODEX_EXEC_CLIENT_NAME),
+        SessionSource::VSCode,
+    )
+    .await;
+    let (_, interactive_client_on_exec_thread) =
+        headless_session_world_state(Some("codex-tui"), SessionSource::Exec).await;
+    let (_, exec_client_on_subagent) = headless_session_world_state(
+        Some(crate::context::CODEX_EXEC_CLIENT_NAME),
+        SessionSource::SubAgent(SubAgentSource::Review),
+    )
+    .await;
+
+    let texts = headless_session_texts(&exec_client_on_interactive_thread);
+    assert_eq!(texts.len(), 1, "{texts:?}");
+    assert!(texts[0].contains("Nobody reads the `commentary` channel"));
+    assert_eq!(
+        headless_session_texts(&interactive_client_on_exec_thread),
+        Vec::<&str>::new()
+    );
+    assert_eq!(
+        headless_session_texts(&exec_client_on_subagent),
+        Vec::<&str>::new()
+    );
+}
+
+#[tokio::test]
+async fn headless_session_instructions_retire_and_return_when_the_client_changes() {
+    let (exec_state, exec_context) = headless_session_world_state(
+        Some(crate::context::CODEX_EXEC_CLIENT_NAME),
+        SessionSource::Exec,
+    )
+    .await;
+    let (interactive_state, _) =
+        headless_session_world_state(Some("codex-tui"), SessionSource::Exec).await;
+    let render = |state: &WorldState, previous: &WorldState, history: &[ResponseItem]| {
+        crate::context_manager::updates::merge_contextual_fragments(
+            state.render_history_diff(Some(&previous.snapshot()), history),
+        )
+    };
+
+    let interactive_turn = render(&interactive_state, &exec_state, &exec_context);
+    let interactive_texts = headless_session_texts(&interactive_turn);
+    assert_eq!(interactive_texts.len(), 1, "{interactive_texts:?}");
+    assert!(interactive_texts[0].contains("no longer apply"));
+
+    let history = [exec_context.as_slice(), interactive_turn.as_slice()].concat();
+    let repeated_interactive_turn = render(&interactive_state, &interactive_state, &history);
+    assert_eq!(
+        headless_session_texts(&repeated_interactive_turn),
+        Vec::<&str>::new()
+    );
+
+    let exec_turn = render(&exec_state, &interactive_state, &history);
+    let exec_texts = headless_session_texts(&exec_turn);
+    assert_eq!(exec_texts.len(), 1, "{exec_texts:?}");
+    assert!(exec_texts[0].contains("Nobody reads the `commentary` channel"));
+}
+
 async fn make_multi_agent_v2_usage_hint_test_session(
     enable_multi_agent_v2: bool,
 ) -> (Arc<Session>, Arc<TurnContext>) {
