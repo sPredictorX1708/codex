@@ -28,8 +28,11 @@ Settings:
 00:compaction:encrypted=true; chars=17; hash=3733598f92aa081a
 01:message/user:
     Keep the working tree unchanged.
-02:message/developer:
-    <PERMISSIONS_INSTRUCTIONS>
+02:message/developer[2]:
+    [01] <PERMISSIONS_INSTRUCTIONS>
+    [02] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 03:message/user:
     <ENVIRONMENT_CONTEXT>
 04:message/user:
@@ -62,9 +65,12 @@ Settings: relative to window 1
 03:message/user:
     Confirm where publishing is allowed.
 04:compaction:encrypted=true; chars=39; hash=4010be12538dbedf
-05:message/developer[2]:
+05:message/developer[3]:
     [01] <MODEL_SWITCH>
     [02] <PERMISSIONS_INSTRUCTIONS>
+    [03] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 06:message/user:
     <ENVIRONMENT_CONTEXT>
 07:message/user:
@@ -198,9 +204,12 @@ Settings: same as window 2
 03:message/user:
     Confirm where publishing is allowed.
 04:compaction:encrypted=true; chars=39; hash=4010be12538dbedf
-05:message/developer[2]:
+05:message/developer[3]:
     [01] <MODEL_SWITCH>
     [02] <PERMISSIONS_INSTRUCTIONS>
+    [03] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 06:message/user:
     <ENVIRONMENT_CONTEXT>
 07:message/user:
@@ -231,8 +240,11 @@ Settings: same as window 2
 05:message/user:
     Run another check after compaction.
 06:compaction:encrypted=true; chars=33; hash=5c07b4383c427607
-07:message/developer:
-    <PERMISSIONS_INSTRUCTIONS>
+07:message/developer[2]:
+    [01] <PERMISSIONS_INSTRUCTIONS>
+    [02] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 08:message/user:
     <ENVIRONMENT_CONTEXT>
 09:message/user:
@@ -355,8 +367,11 @@ Settings: same as window 2
 05:message/user:
     Run another check after compaction.
 06:compaction:encrypted=true; chars=33; hash=5c07b4383c427607
-07:message/developer:
-    <PERMISSIONS_INSTRUCTIONS>
+07:message/developer[2]:
+    [01] <PERMISSIONS_INSTRUCTIONS>
+    [02] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 08:message/user:
     <ENVIRONMENT_CONTEXT>
 09:message/user:

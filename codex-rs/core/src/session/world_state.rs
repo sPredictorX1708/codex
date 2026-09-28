@@ -11,6 +11,7 @@ use crate::context::world_state::CompactPermissionsState;
 use crate::context::world_state::ContextWindowGuidanceState;
 use crate::context::world_state::EnvironmentsInstructionsState;
 use crate::context::world_state::EnvironmentsState;
+use crate::context::world_state::HeadlessSessionState;
 use crate::context::world_state::ManagedDeveloperInstructionsState;
 use crate::context::world_state::ModelInstructionsState;
 use crate::context::world_state::MultiAgentModeState;
@@ -31,6 +32,7 @@ use codex_prompts::render_model_instructions;
 use codex_protocol::error::Result as CodexResult;
 use codex_protocol::models::BaseInstructionsProvenance;
 use codex_protocol::protocol::MultiAgentVersion;
+use codex_protocol::protocol::SessionSource;
 
 const MAX_ENVIRONMENT_SUBAGENTS: usize = 8;
 const MAX_ENVIRONMENT_SUBAGENT_BYTES: usize = 1_024;
@@ -208,6 +210,10 @@ impl Session {
                 turn_context.config.model_catalog.is_some(),
             ));
         }
+        world_state.add_section(HeadlessSessionState::new(matches!(
+            turn_context.session_source,
+            SessionSource::Exec
+        )));
         if !crate::guardian::is_basic_session_source(&turn_context.session_source) {
             let send_user_message_async_available =
                 !turn_context.session_source.is_non_root_agent()

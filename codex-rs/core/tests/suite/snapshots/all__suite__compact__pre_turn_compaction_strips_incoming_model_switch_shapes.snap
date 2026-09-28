@@ -6,8 +6,11 @@ Scenario: Pre-turn compaction during model switch (without pre-sampling model-sw
 
 ## Window 1
 -- request 1 (turn; Initial Request (Previous Model)) --
-00:message/developer:
-    <PERMISSIONS_INSTRUCTIONS>
+00:message/developer[2]:
+    [01] <PERMISSIONS_INSTRUCTIONS>
+    [02] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:
@@ -15,8 +18,11 @@ Scenario: Pre-turn compaction during model switch (without pre-sampling model-sw
 
 ## Window 2 (after request 1: settings changed (model, parallel_tool_calls, reasoning, text, tools))
 -- request 2 (compaction; Local Compaction Request) --
-00:message/developer:
-    <PERMISSIONS_INSTRUCTIONS>
+00:message/developer[2]:
+    [01] <PERMISSIONS_INSTRUCTIONS>
+    [02] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:
@@ -33,9 +39,12 @@ Scenario: Pre-turn compaction during model switch (without pre-sampling model-sw
 01:message/user:
     <COMPACTION_SUMMARY>
     PRETURN_SWITCH_SUMMARY
-02:message/developer[2]:
+02:message/developer[3]:
     [01] <MODEL_SWITCH>
     [02] <PERMISSIONS_INSTRUCTIONS>
+    [03] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 03:message/user:
     <ENVIRONMENT_CONTEXT>
 04:message/user:

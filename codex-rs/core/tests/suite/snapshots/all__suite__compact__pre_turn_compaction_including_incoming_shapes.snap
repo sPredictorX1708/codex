@@ -6,8 +6,11 @@ Scenario: Pre-turn auto-compaction uses the prior context without the incoming u
 
 ## Window 1
 -- request 1 (turn) --
-00:message/developer:
-    <PERMISSIONS_INSTRUCTIONS>
+00:message/developer[2]:
+    [01] <PERMISSIONS_INSTRUCTIONS>
+    [02] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:
@@ -20,8 +23,11 @@ Scenario: Pre-turn auto-compaction uses the prior context without the incoming u
 
 ## Window 2 (after request 2: settings changed (parallel_tool_calls, tools))
 -- request 3 (compaction) --
-00:message/developer:
-    <PERMISSIONS_INSTRUCTIONS>
+00:message/developer[2]:
+    [01] <PERMISSIONS_INSTRUCTIONS>
+    [02] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:
@@ -44,8 +50,11 @@ Scenario: Pre-turn auto-compaction uses the prior context without the incoming u
 02:message/user:
     <COMPACTION_SUMMARY>
     PRE_TURN_SUMMARY
-03:message/developer:
-    <PERMISSIONS_INSTRUCTIONS>
+03:message/developer[2]:
+    [01] <PERMISSIONS_INSTRUCTIONS>
+    [02] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 04:message/user:
     <ENVIRONMENT_CONTEXT>
 05:message/user[2]:

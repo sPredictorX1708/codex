@@ -1,15 +1,17 @@
 ---
 source: core/tests/suite/compact.rs
-assertion_line: 4537
 expression: "format_history_snapshot(\"Real paginated mid-turn compaction and cold resume from the bounded suffix.\",\n&requests,)"
 ---
 Scenario: Real paginated mid-turn compaction and cold resume from the bounded suffix.
 
 ## Window 1
 -- request 1 (turn) --
-00:message/developer[2]:
+00:message/developer[3]:
     [01] <PERMISSIONS_INSTRUCTIONS>
     [02] <COLLABORATION_MODE>
+    [03] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 01:message/developer:
     You are `/root`, the primary agent in a team of agents collaborating to fulfill the user's goals.
 
@@ -35,9 +37,12 @@ Scenario: Real paginated mid-turn compaction and cold resume from the bounded su
 
 ## Window 2 (after request 1: settings changed (parallel_tool_calls, tools))
 -- request 2 (compaction) --
-00:message/developer[2]:
+00:message/developer[3]:
     [01] <PERMISSIONS_INSTRUCTIONS>
     [02] <COLLABORATION_MODE>
+    [03] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 01:message/developer:
     You are `/root`, the primary agent in a team of agents collaborating to fulfill the user's goals.
 
@@ -67,9 +72,12 @@ Scenario: Real paginated mid-turn compaction and cold resume from the bounded su
 
 ## Window 3 (after request 2: input diverged at item 04, settings changed (parallel_tool_calls, tools))
 -- request 3 (turn) --
-00:message/developer[2]:
+00:message/developer[3]:
     [01] <PERMISSIONS_INSTRUCTIONS>
     [02] <COLLABORATION_MODE>
+    [03] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 01:message/developer:
     You are `/root`, the primary agent in a team of agents collaborating to fulfill the user's goals.
 

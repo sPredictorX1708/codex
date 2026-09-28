@@ -6,9 +6,12 @@ Scenario: First post-resume turn where pre-turn override sets model to rollout m
 
 ## Window 1
 -- request 1 (turn; Last Request Before Resume) --
-00:message/developer[2]:
+00:message/developer[3]:
     [01] <SKILLS_INSTRUCTIONS>
     [02] <PERMISSIONS_INSTRUCTIONS>
+    [03] <headless_session>
+        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
+        </headless_session>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:

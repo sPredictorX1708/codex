@@ -1,0 +1,13 @@
+---
+source: core/src/context/world_state/headless_session_tests.rs
+expression: "fresh.iter().chain(&retired).map(|fragment|\nformat!(\"(role - {})\\n{}\", fragment.role(),\nfragment.render())).collect::<Vec<_>>().join(\"\\n\\n\")"
+---
+(role - developer)
+<headless_session>
+This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work, and no user message or answer can arrive before the turn ends. This replaces the intermediate commentary guidance: do not send an opening commentary message or progress updates. Call tools directly, and put everything the user needs in the final answer.
+</headless_session>
+
+(role - developer)
+<headless_session>
+The previously provided headless-session instructions no longer apply.
+</headless_session>
