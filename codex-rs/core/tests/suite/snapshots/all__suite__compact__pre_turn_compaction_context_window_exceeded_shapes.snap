@@ -6,11 +6,8 @@ Scenario: Pre-turn auto-compaction context-window failure: compaction request ex
 
 ## Window 1
 -- request 1 (compaction; Local Compaction Request (Incoming User Excluded)) --
-00:message/developer[2]:
-    [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
+00:message/developer:
+    <PERMISSIONS_INSTRUCTIONS>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:

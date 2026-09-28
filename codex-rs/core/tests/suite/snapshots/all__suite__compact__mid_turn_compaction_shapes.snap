@@ -6,11 +6,8 @@ Scenario: True mid-turn continuation compaction after tool output: compact reque
 
 ## Window 1
 -- request 1 (turn) --
-00:message/developer[2]:
-    [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
+00:message/developer:
+    <PERMISSIONS_INSTRUCTIONS>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:
@@ -18,11 +15,8 @@ Scenario: True mid-turn continuation compaction after tool output: compact reque
 
 ## Window 2 (after request 1: settings changed (parallel_tool_calls, tools))
 -- request 2 (compaction) --
-00:message/developer[2]:
-    [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
+00:message/developer:
+    <PERMISSIONS_INSTRUCTIONS>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:
@@ -34,11 +28,8 @@ Scenario: True mid-turn continuation compaction after tool output: compact reque
 
 ## Window 3 (after request 2: input diverged at item 03, settings changed (parallel_tool_calls, tools))
 -- request 3 (turn) --
-00:message/developer[2]:
-    [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
+00:message/developer:
+    <PERMISSIONS_INSTRUCTIONS>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:

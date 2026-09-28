@@ -6,13 +6,10 @@ Scenario: Initially available deferred tools remain unchanged until disabling Ca
 
 ## Window 1
 -- request 1 (turn; Initially available) --
-00:message/developer[4]:
+00:message/developer[3]:
     [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
-    [03] <APPS_INSTRUCTIONS>
-    [04] <tools>
+    [02] <APPS_INSTRUCTIONS>
+    [03] <tools>
         Deferred tool namespaces:
         - mcp__codex_apps__calendar: Plan events and manage your calendar.
         </tools>
@@ -28,13 +25,10 @@ Scenario: Initially available deferred tools remain unchanged until disabling Ca
 
 ## Window 2 (after request 2: settings changed (tools))
 -- request 3 (turn; Removed and empty) --
-00:message/developer[4]:
+00:message/developer[3]:
     [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
-    [03] <APPS_INSTRUCTIONS>
-    [04] <tools>
+    [02] <APPS_INSTRUCTIONS>
+    [03] <tools>
         Deferred tool namespaces:
         - mcp__codex_apps__calendar: Plan events and manage your calendar.
         </tools>

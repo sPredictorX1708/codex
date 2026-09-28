@@ -1,16 +1,14 @@
 ---
 source: core/tests/suite/scenarios_agent_message_board.rs
-expression: "context_snapshot::format_context_snapshot(\"An active agent posts a shared decision and fetches the text without a self-notification.\",\n&bodies.iter().map(SnapshotEntry::body).collect::<Vec<_>>(),\n&ContextSnapshotOptions::default().rewrite_known_segments(),)"
+assertion_line: 88
+expression: "context_snapshot::format_context_snapshot(\"An active agent posts a shared decision and fetches the text without a self-notification.\",\n&bodies.iter().map(SnapshotEntry::body).collect::<Vec<_>>(), &ContextSnapshotOptions::default().rewrite_known_segments(),)"
 ---
 Scenario: An active agent posts a shared decision and fetches the text without a self-notification.
 
 ## Window 1
 -- request 1 (request) --
-00:message/developer[2]:
-    [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
+00:message/developer:
+    <PERMISSIONS_INSTRUCTIONS>
 01:message/developer:
     You are `/root`, the primary agent in a team of agents collaborating to fulfill the user's goals.
 

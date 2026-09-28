@@ -26,12 +26,9 @@ Settings:
     - tool_search: # Tool discovery  Searches over deferred tool metadata with BM25 and exposes matching tools for t...; args=[limit, query]; hash=400cd6ac61d524a9
     - web_search; hash=f103e327c6870a46
 -- request 1 (turn) --
-00:message/developer[4]:
+00:message/developer[3]:
     [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
-    [03] <environments_instructions>
+    [02] <environments_instructions>
         ## Execution environments
         Execution environments are separate machines or workspaces with their own files, shell, and installed ca...text>` lists the environments selected for this task. [hash=bc910d398b9b4d83]
 
@@ -39,7 +36,7 @@ Settings:
 
         Wait only when the current task needs that environment. Continue using tools that are already available for unrelated work.
         </environments_instructions>
-    [04] <SKILLS_INSTRUCTIONS>
+    [03] <SKILLS_INSTRUCTIONS>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:
@@ -53,12 +50,9 @@ Settings: relative to window 1
     + custom/apply_patch: The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the pat...; hash=dea9f12b0111a4ba
     + function/view_image: View a local image file from the filesystem when visual inspection is needed. Use this for images...; args=[detail, path]; hash=3b766d5bdec5d50e
 -- request 2 (turn) --
-00:message/developer[4]:
+00:message/developer[3]:
     [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
-    [03] <environments_instructions>
+    [02] <environments_instructions>
         ## Execution environments
         Execution environments are separate machines or workspaces with their own files, shell, and installed ca...text>` lists the environments selected for this task. [hash=bc910d398b9b4d83]
 
@@ -66,7 +60,7 @@ Settings: relative to window 1
 
         Wait only when the current task needs that environment. Continue using tools that are already available for unrelated work.
         </environments_instructions>
-    [04] <SKILLS_INSTRUCTIONS>
+    [03] <SKILLS_INSTRUCTIONS>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:
@@ -96,12 +90,9 @@ Settings: relative to window 2
     - removed tool_search
     - removed web_search
 -- request 4 (compaction) --
-00:message/developer[4]:
+00:message/developer[3]:
     [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
-    [03] <environments_instructions>
+    [02] <environments_instructions>
         ## Execution environments
         Execution environments are separate machines or workspaces with their own files, shell, and installed ca...text>` lists the environments selected for this task. [hash=bc910d398b9b4d83]
 
@@ -109,7 +100,7 @@ Settings: relative to window 2
 
         Wait only when the current task needs that environment. Continue using tools that are already available for unrelated work.
         </environments_instructions>
-    [04] <SKILLS_INSTRUCTIONS>
+    [03] <SKILLS_INSTRUCTIONS>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:
@@ -136,12 +127,9 @@ Settings: same as window 1
 02:message/user:
     <COMPACTION_SUMMARY>
     The available skills were inspected.
-03:message/developer[4]:
+03:message/developer[3]:
     [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
-    [03] <environments_instructions>
+    [02] <environments_instructions>
         ## Execution environments
         Execution environments are separate machines or workspaces with their own files, shell, and installed ca...text>` lists the environments selected for this task. [hash=bc910d398b9b4d83]
 
@@ -149,7 +137,7 @@ Settings: same as window 1
 
         Wait only when the current task needs that environment. Continue using tools that are already available for unrelated work.
         </environments_instructions>
-    [04] <SKILLS_INSTRUCTIONS>
+    [03] <SKILLS_INSTRUCTIONS>
 04:message/user:
     <ENVIRONMENT_CONTEXT>
 05:message/user:
@@ -165,12 +153,9 @@ Settings: same as window 2
 02:message/user:
     <COMPACTION_SUMMARY>
     The available skills were inspected.
-03:message/developer[4]:
+03:message/developer[3]:
     [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
-    [03] <environments_instructions>
+    [02] <environments_instructions>
         ## Execution environments
         Execution environments are separate machines or workspaces with their own files, shell, and installed ca...text>` lists the environments selected for this task. [hash=bc910d398b9b4d83]
 
@@ -178,7 +163,7 @@ Settings: same as window 2
 
         Wait only when the current task needs that environment. Continue using tools that are already available for unrelated work.
         </environments_instructions>
-    [04] <SKILLS_INSTRUCTIONS>
+    [03] <SKILLS_INSTRUCTIONS>
 04:message/user:
     <ENVIRONMENT_CONTEXT>
 05:message/user:

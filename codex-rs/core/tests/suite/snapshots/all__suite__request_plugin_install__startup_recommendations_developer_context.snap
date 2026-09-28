@@ -6,13 +6,10 @@ Scenario: Startup recommendations share the developer message with other context
 
 ## Window 1
 -- request 1 (turn) --
-00:message/developer[4]:
+00:message/developer[3]:
     [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
-    [03] <APPS_INSTRUCTIONS>
-    [04] <recommended_plugins>
+    [02] <APPS_INSTRUCTIONS>
+    [03] <recommended_plugins>
         Here is a list of plugins that are available but not installed.
 
         - GitHub (github@openai-curated-remote)

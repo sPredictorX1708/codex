@@ -6,11 +6,8 @@ Scenario: Manual /compact with prior user history compacts existing history and 
 
 ## Window 1
 -- request 1 (turn) --
-00:message/developer[2]:
-    [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
+00:message/developer:
+    <PERMISSIONS_INSTRUCTIONS>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:
@@ -18,11 +15,8 @@ Scenario: Manual /compact with prior user history compacts existing history and 
 
 ## Window 2 (after request 1: settings changed (parallel_tool_calls, tools))
 -- request 2 (compaction) --
-00:message/developer[2]:
-    [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
+00:message/developer:
+    <PERMISSIONS_INSTRUCTIONS>
 01:message/user:
     <ENVIRONMENT_CONTEXT>
 02:message/user:
@@ -39,11 +33,8 @@ Scenario: Manual /compact with prior user history compacts existing history and 
 01:message/user:
     <COMPACTION_SUMMARY>
     FIRST_MANUAL_SUMMARY
-02:message/developer[2]:
-    [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
+02:message/developer:
+    <PERMISSIONS_INSTRUCTIONS>
 03:message/user:
     <ENVIRONMENT_CONTEXT>
 04:message/user:
@@ -56,11 +47,8 @@ Scenario: Manual /compact with prior user history compacts existing history and 
 01:message/user:
     <COMPACTION_SUMMARY>
     FIRST_MANUAL_SUMMARY
-02:message/developer[2]:
-    [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
+02:message/developer:
+    <PERMISSIONS_INSTRUCTIONS>
 03:message/user:
     <ENVIRONMENT_CONTEXT>
 04:message/user:
@@ -79,11 +67,8 @@ Scenario: Manual /compact with prior user history compacts existing history and 
 02:message/user:
     <COMPACTION_SUMMARY>
     SECOND_MANUAL_SUMMARY
-03:message/developer[2]:
-    [01] <PERMISSIONS_INSTRUCTIONS>
-    [02] <headless_session>
-        This session runs unattended through `codex exec`. Nobody reads the `commentary` channel while you work,...nd put everything the user needs in the final answer. [hash=cb124ac4f054c233]
-        </headless_session>
+03:message/developer:
+    <PERMISSIONS_INSTRUCTIONS>
 04:message/user:
     <ENVIRONMENT_CONTEXT>
 05:message/user:
