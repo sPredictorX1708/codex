@@ -10,7 +10,7 @@ use super::WorldStateSection;
 use crate::context::ContextualUserFragment;
 use codex_protocol::models::ContentItemKind;
 
-const UNATTENDED_RUN_INSTRUCTIONS: &str = "This turn runs unattended through `codex exec`. Whoever launched the run reviews the resulting workspace changes with git after it ends. Once the checks for your change pass, finish with your final answer: do not spend further tool calls re-inspecting your own edits with `git diff` or `git status`, and leave untracked artifacts that running tests or builds created, such as bytecode caches, in place.";
+const UNATTENDED_RUN_INSTRUCTIONS: &str = "This turn runs unattended through `codex exec`. Whoever launched the run reviews the resulting workspace changes with git after it ends. One `apply_patch` call can add or update several files: put every file that one change touches, including its tests and docs, into a single call (each file once, with all of its hunks under one header), then run the checks once. Once the checks for your change pass, finish with your final answer: do not spend further tool calls re-inspecting your own edits with `git diff` or `git status`, and leave untracked artifacts that running tests or builds created, such as bytecode caches, in place.";
 const REMOVAL_NOTICE: &str = "The previously provided unattended-run instructions no longer apply.";
 
 /// Whether the client that started the current turn is `codex exec`.
