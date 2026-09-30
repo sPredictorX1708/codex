@@ -22,6 +22,12 @@ const GPT_6_SOL_OPENAI_MODEL_ID: &str = "gpt-6-sol";
 const GPT_6_LUNA_OPENAI_MODEL_ID: &str = "gpt-6-luna";
 const GPT_6_ASTRA_OPENAI_MODEL_ID: &str = "gpt-6-astra";
 const GPT_5_5_OPENAI_MODEL_ID: &str = "gpt-5.5";
+/// Code-mode batching rules in the bundled GPT-6 instruction templates. They name the
+/// `functions.exec` tool, which Bedrock models do not get because `bedrock_model` clears
+/// `tool_mode`.
+const CODE_MODE_BATCHING_RULES: &str = "- Batch independent searches and reads in one functions.exec using await Promise.allSettled([...]); inspect every result. Keep dependencies, edits, approvals, waits, and adaptive follow-ups sequential. Avoid unnecessary output.\n- When calling `functions.exec`, parallelize independent tool calls by awaiting Promises. Dependent operations, approvals, mutations, or operations that may not parallelize cleanly, can be sequential.\n";
+/// The same batching rule phrased for the direct `exec_command` tool Bedrock models run with.
+const DIRECT_TOOL_BATCHING_RULE: &str = "- Batch independent searches, file reads, and probe scripts into one exec_command call, joining the commands with newlines or `;` rather than `&&` so one failing part does not skip the rest; inspect every result. Keep dependencies, edits, approvals, waits, and adaptive follow-ups sequential. Avoid unnecessary output.\n";
 
 pub(crate) fn static_model_catalog() -> ModelsResponse {
     normalize_bedrock_catalog(ModelsResponse {
@@ -149,10 +155,21 @@ fn bedrock_model(
     model.upgrade = None;
     model.use_responses_lite = false;
     model.tool_mode = None;
+    use_direct_tool_batching_rule(&mut model);
     model
         .supported_reasoning_levels
         .retain(|level| level.effort != ReasoningEffort::Ultra);
     model
+}
+
+fn use_direct_tool_batching_rule(model: &mut ModelInfo) {
+    if let Some(template) = model
+        .model_messages
+        .as_mut()
+        .and_then(|messages| messages.instructions_template.as_mut())
+    {
+        *template = template.replace(CODE_MODE_BATCHING_RULES, DIRECT_TOOL_BATCHING_RULE);
+    }
 }
 
 fn bundled_openai_model(slug: &str) -> ModelInfo {
@@ -336,6 +353,7 @@ mod tests {
             expected.upgrade = None;
             expected.use_responses_lite = false;
             expected.tool_mode = None;
+            use_direct_tool_batching_rule(&mut expected);
             expected
                 .supported_reasoning_levels
                 .retain(|level| level.effort != ReasoningEffort::Ultra);
@@ -349,6 +367,51 @@ mod tests {
             assert_eq!(
                 catalog.models.iter().find(|model| model.slug == slug),
                 Some(&expected)
+            );
+        }
+    }
+
+    #[test]
+    fn bedrock_gpt_6_instructions_use_direct_tool_batching_rule() {
+        let catalog = static_model_catalog();
+
+        for (openai_slug, bedrock_slug) in [
+            (GPT_6_SOL_OPENAI_MODEL_ID, AMAZON_BEDROCK_GPT_6_SOL_MODEL_ID),
+            (
+                GPT_6_ASTRA_OPENAI_MODEL_ID,
+                AMAZON_BEDROCK_GPT_6_ASTRA_MODEL_ID,
+            ),
+            (
+                GPT_6_LUNA_OPENAI_MODEL_ID,
+                AMAZON_BEDROCK_GPT_6_LUNA_MODEL_ID,
+            ),
+        ] {
+            let source = bundled_openai_model(openai_slug)
+                .model_messages
+                .and_then(|messages| messages.instructions_template)
+                .unwrap_or_default();
+            let bedrock = catalog
+                .models
+                .iter()
+                .find(|model| model.slug == bedrock_slug)
+                .and_then(|model| model.model_messages.as_ref())
+                .and_then(|messages| messages.instructions_template.as_deref())
+                .unwrap_or_default();
+
+            assert_eq!(
+                (
+                    source.contains(CODE_MODE_BATCHING_RULES),
+                    bedrock.contains("functions.exec"),
+                    bedrock.contains("Promise"),
+                    bedrock.matches(DIRECT_TOOL_BATCHING_RULE).count(),
+                ),
+                (true, false, false, 1),
+                "{bedrock_slug}"
+            );
+            assert_eq!(
+                bedrock,
+                source.replace(CODE_MODE_BATCHING_RULES, DIRECT_TOOL_BATCHING_RULE),
+                "{bedrock_slug}"
             );
         }
     }
