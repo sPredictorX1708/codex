@@ -3776,6 +3776,8 @@ async fn spawn_agent_fork_last_n_turns_strips_parent_usage_hints() {
 
 const HEADLESS_SESSION_FRAGMENT: &str =
     "<headless_session>\nThis session runs unattended through `codex exec`.\n</headless_session>";
+const UNATTENDED_RUN_FRAGMENT: &str =
+    "<unattended_run>\nThis turn runs unattended through `codex exec`.\n</unattended_run>";
 
 fn developer_message(texts: &[&str]) -> ResponseItem {
     ResponseItem::Message {
@@ -3792,11 +3794,12 @@ fn developer_message(texts: &[&str]) -> ResponseItem {
     }
 }
 
-/// Headless-session guidance is addressed to the root agent of a `codex exec` run. A full-history
-/// fork must drop it from inherited messages, compacted replacement history, and the inherited
-/// world-state baseline, because the child never renders that section and so could not retire it.
+/// Headless-session and unattended-run guidance is addressed to the root agent of a `codex exec`
+/// run. A full-history fork must drop both from inherited messages, compacted replacement history,
+/// and the inherited world-state baseline, because the child never renders those sections and so
+/// could not retire them.
 #[tokio::test]
-async fn spawn_agent_full_fork_drops_parent_headless_session_guidance() {
+async fn spawn_agent_full_fork_drops_parent_codex_exec_guidance() {
     let harness = AgentControlHarness::new().await;
     let new_thread = harness
         .manager
@@ -3807,7 +3810,7 @@ async fn spawn_agent_full_fork_drops_parent_headless_session_guidance() {
     let parent_thread = new_thread.thread;
     let turn_context = parent_thread.session.new_default_turn().await;
     let parent_spawn_call_id = "spawn-call-headless-session".to_string();
-    let world_state = serde_json::json!({ "headless_session": true })
+    let world_state = serde_json::json!({ "headless_session": true, "unattended_run": true })
         .as_object()
         .cloned()
         .expect("world-state fixture should be an object");
@@ -3820,6 +3823,7 @@ async fn spawn_agent_full_fork_drops_parent_headless_session_guidance() {
                     user_message("compacted parent summary").into(),
                     developer_message(&[
                         HEADLESS_SESSION_FRAGMENT,
+                        UNATTENDED_RUN_FRAGMENT,
                         "Preserved compacted developer context.",
                     ])
                     .into(),
@@ -3838,9 +3842,11 @@ async fn spawn_agent_full_fork_drops_parent_headless_session_guidance() {
             RolloutItem::WorldState(codex_protocol::protocol::WorldStateItem::full(world_state)),
             rollout_response_item(developer_message(&[
                 HEADLESS_SESSION_FRAGMENT,
+                UNATTENDED_RUN_FRAGMENT,
                 "Preserved top-level developer context.",
             ])),
             rollout_response_item(developer_message(&[HEADLESS_SESSION_FRAGMENT])),
+            rollout_response_item(developer_message(&[UNATTENDED_RUN_FRAGMENT])),
             RolloutItem::TurnContext(turn_context.to_turn_context_item()),
             rollout_response_item(spawn_agent_call(&parent_spawn_call_id)),
         ])
@@ -3874,6 +3880,10 @@ async fn spawn_agent_full_fork_drops_parent_headless_session_guidance() {
     assert!(
         !history_contains_text(history.raw_items(), "<headless_session>"),
         "a forked child must not inherit the root's headless-session guidance"
+    );
+    assert!(
+        !history_contains_text(history.raw_items(), "<unattended_run>"),
+        "a forked child must not inherit the root's unattended-run guidance"
     );
     assert!(
         history_contains_text(history.raw_items(), "compacted parent summary"),
@@ -3921,6 +3931,12 @@ async fn spawn_agent_full_fork_drops_parent_headless_session_guidance() {
             .all(|world_state| !world_state.state.contains_key("headless_session")),
         "a forked child must not inherit the root's headless-session snapshot: {inherited_world_states:?}"
     );
+    assert!(
+        inherited_world_states
+            .iter()
+            .all(|world_state| !world_state.state.contains_key("unattended_run")),
+        "a forked child must not inherit the root's unattended-run snapshot: {inherited_world_states:?}"
+    );
 
     let _ = harness
         .control
@@ -3934,7 +3950,7 @@ async fn spawn_agent_full_fork_drops_parent_headless_session_guidance() {
 }
 
 #[tokio::test]
-async fn spawn_agent_fork_last_n_turns_drops_parent_headless_session_guidance() {
+async fn spawn_agent_fork_last_n_turns_drops_parent_codex_exec_guidance() {
     let harness = AgentControlHarness::new().await;
     let new_thread = harness
         .manager
@@ -3957,6 +3973,7 @@ async fn spawn_agent_fork_last_n_turns_drops_parent_headless_session_guidance() 
             &[
                 developer_message(&[
                     HEADLESS_SESSION_FRAGMENT,
+                    UNATTENDED_RUN_FRAGMENT,
                     "Preserved bounded developer context.",
                 ]),
                 spawn_agent_call(&parent_spawn_call_id),
@@ -3996,6 +4013,10 @@ async fn spawn_agent_fork_last_n_turns_drops_parent_headless_session_guidance() 
     assert!(
         !history_contains_text(history.raw_items(), "<headless_session>"),
         "a bounded fork must not inherit the root's headless-session guidance"
+    );
+    assert!(
+        !history_contains_text(history.raw_items(), "<unattended_run>"),
+        "a bounded fork must not inherit the root's unattended-run guidance"
     );
     assert!(
         history_contains_text(history.raw_items(), "Preserved bounded developer context."),

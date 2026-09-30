@@ -1,0 +1,37 @@
+---
+source: core/src/context/world_state/unattended_run_tests.rs
+expression: "render_section_cases(&[(Absent, Known(&attended)),\n(Absent, Known(&unattended)), (Known(&attended), Known(&attended)),\n(Known(&attended), Known(&unattended)),\n(Known(&unattended), Known(&unattended)),\n(Known(&unattended), Known(&attended)), (Unknown, Known(&attended)),\n(Unknown, Known(&unattended)),])"
+---
+Absent -> false
+None
+
+Absent -> true (role - developer)
+<unattended_run>
+This turn runs unattended through `codex exec`. Whoever launched the run reviews the resulting workspace changes with git after it ends. Once the checks for your change pass, finish with your final answer: do not spend further tool calls re-inspecting your own edits with `git diff` or `git status`, and leave untracked artifacts that running tests or builds created, such as bytecode caches, in place.
+</unattended_run>
+
+false -> false
+None
+
+false -> true (role - developer)
+<unattended_run>
+This turn runs unattended through `codex exec`. Whoever launched the run reviews the resulting workspace changes with git after it ends. Once the checks for your change pass, finish with your final answer: do not spend further tool calls re-inspecting your own edits with `git diff` or `git status`, and leave untracked artifacts that running tests or builds created, such as bytecode caches, in place.
+</unattended_run>
+
+true -> true
+None
+
+true -> false (role - developer)
+<unattended_run>
+The previously provided unattended-run instructions no longer apply.
+</unattended_run>
+
+Unknown -> false (role - developer)
+<unattended_run>
+The previously provided unattended-run instructions no longer apply.
+</unattended_run>
+
+Unknown -> true (role - developer)
+<unattended_run>
+This turn runs unattended through `codex exec`. Whoever launched the run reviews the resulting workspace changes with git after it ends. Once the checks for your change pass, finish with your final answer: do not spend further tool calls re-inspecting your own edits with `git diff` or `git status`, and leave untracked artifacts that running tests or builds created, such as bytecode caches, in place.
+</unattended_run>

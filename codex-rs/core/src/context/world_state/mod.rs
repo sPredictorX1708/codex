@@ -17,6 +17,7 @@ mod realtime;
 #[cfg(test)]
 mod test_support;
 mod tools;
+mod unattended_run;
 
 use crate::context::ContextualUserFragment;
 use codex_extension_api::PreviousWorldStateSection;
@@ -57,6 +58,8 @@ pub(crate) use persistent_mode::PersistentModeState;
 pub(crate) use plugins_instructions::PluginsInstructionsState;
 pub(crate) use realtime::RealtimeState;
 pub(crate) use tools::ToolsState;
+pub(crate) use unattended_run::UnattendedRunInstructions;
+pub(crate) use unattended_run::UnattendedRunState;
 
 trait ErasedWorldStateSection: Send + Sync {
     fn snapshot(&self) -> Option<Value>;

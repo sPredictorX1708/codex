@@ -21,6 +21,7 @@ use crate::context::world_state::PersistentModeState;
 use crate::context::world_state::PluginsInstructionsState;
 use crate::context::world_state::RealtimeState;
 use crate::context::world_state::ToolsState;
+use crate::context::world_state::UnattendedRunState;
 use crate::context::world_state::WorldState;
 use codex_connectors::AppToolPolicyEvaluator;
 use codex_extension_api::WorldStateContributionInput;
@@ -211,6 +212,9 @@ impl Session {
         }
         if !turn_context.session_source.is_non_root_agent() {
             world_state.add_section(HeadlessSessionState::new(
+                turn_context.app_server_client_name.as_deref(),
+            ));
+            world_state.add_section(UnattendedRunState::new(
                 turn_context.app_server_client_name.as_deref(),
             ));
         }
