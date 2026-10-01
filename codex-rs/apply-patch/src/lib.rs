@@ -154,6 +154,8 @@ pub struct ApplyPatchArgs {
     pub hunks: Vec<Hunk>,
     pub workdir: Option<String>,
     pub environment_id: Option<String>,
+    /// Shell command from a `*** Then Run:` line, to run after the patch applies.
+    pub verify_command: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -202,6 +204,9 @@ pub struct ApplyPatchAction {
 
     /// The working directory that was used to resolve relative paths in the patch.
     pub cwd: PathUri,
+
+    /// Shell command from a `*** Then Run:` line, to run in `cwd` after the patch applies.
+    pub verify_command: Option<String>,
 }
 
 impl ApplyPatchAction {
@@ -238,6 +243,7 @@ impl ApplyPatchAction {
             update_file_mode: ApplyPatchFileUpdateMode::default(),
             cwd: path.parent().expect("path should have parent"),
             patch,
+            verify_command: None,
         }
     }
 }

@@ -222,6 +222,7 @@ async fn try_verify_apply_patch_args(
         patch,
         hunks,
         workdir,
+        verify_command,
         ..
     } = args;
     let effective_cwd = workdir
@@ -291,6 +292,7 @@ async fn try_verify_apply_patch_args(
         update_file_mode,
         patch,
         cwd: effective_cwd,
+        verify_command,
     })
 }
 
@@ -916,6 +918,7 @@ PATCH"#,
                 patch: argv[1].clone(),
                 cwd: PathUri::from_host_native_path(session_dir.path())
                     .expect("absolute test path"),
+                verify_command: None,
             })
         );
     }

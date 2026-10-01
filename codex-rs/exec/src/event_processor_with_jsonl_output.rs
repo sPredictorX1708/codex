@@ -15,6 +15,7 @@ use codex_app_server_protocol::ThreadTokenUsage;
 use codex_app_server_protocol::TurnStatus;
 use codex_app_server_protocol::WebSearchAction as ApiWebSearchAction;
 use codex_core::config::Config;
+use codex_protocol::items::apply_patch_check_call_id;
 use codex_protocol::models::WebSearchAction;
 use codex_protocol::protocol::SessionConfiguredEvent;
 use serde_json::json;
@@ -60,6 +61,9 @@ pub struct EventProcessorWithJsonOutput {
     last_message_path: Option<PathBuf>,
     next_item_id: AtomicU64,
     raw_to_exec_item_id: HashMap<String, String>,
+    /// Completed `*** Then Run:` commands, by `apply_patch` call id, waiting for
+    /// their file change item.
+    pending_patch_checks: HashMap<String, CommandExecutionItem>,
     running_todo_list: Option<RunningTodoList>,
     last_total_token_usage: Option<ThreadTokenUsage>,
     last_critical_error: Option<ThreadErrorEvent>,
@@ -85,6 +89,7 @@ impl EventProcessorWithJsonOutput {
             last_message_path,
             next_item_id: AtomicU64::new(0),
             raw_to_exec_item_id: HashMap::new(),
+            pending_patch_checks: HashMap::new(),
             running_todo_list: None,
             last_total_token_usage: None,
             last_critical_error: None,
@@ -202,6 +207,7 @@ impl EventProcessorWithJsonOutput {
                             ExecPatchApplyStatus::Failed
                         }
                     },
+                    verification: None,
                 }),
             }),
             ThreadItem::McpToolCall {
@@ -343,6 +349,11 @@ impl EventProcessorWithJsonOutput {
     fn map_started_item(&mut self, item: ThreadItem) -> Option<ExecThreadItem> {
         match item {
             ThreadItem::AgentMessage { .. } | ThreadItem::Reasoning { .. } => None,
+            ThreadItem::CommandExecution { ref id, .. }
+                if apply_patch_check_call_id(id).is_some() =>
+            {
+                None
+            }
             other => {
                 let raw_id = other.id().to_string();
                 Self::map_item_with_id(other, || self.started_item_id(&raw_id))
@@ -356,13 +367,35 @@ impl EventProcessorWithJsonOutput {
         {
             return None;
         }
+        // A patch's `*** Then Run:` command is reported on its file change item.
+        if let ThreadItem::CommandExecution { id, .. } = &item
+            && let Some(call_id) = apply_patch_check_call_id(id)
+        {
+            let call_id = call_id.to_string();
+            if let Some(ExecThreadItem {
+                details: ThreadItemDetails::CommandExecution(check),
+                ..
+            }) = Self::map_item_with_id(item, String::new)
+            {
+                self.pending_patch_checks.insert(call_id, check);
+            }
+            return None;
+        }
         match &item {
             ThreadItem::AgentMessage { .. } | ThreadItem::Reasoning { .. } => {
                 Self::map_item_with_id(item, || self.next_item_id())
             }
             other => {
                 let raw_id = other.id().to_string();
-                Self::map_item_with_id(item, || self.completed_item_id(&raw_id))
+                let mut mapped = Self::map_item_with_id(item, || self.completed_item_id(&raw_id));
+                if let Some(ExecThreadItem {
+                    details: ThreadItemDetails::FileChange(file_change),
+                    ..
+                }) = mapped.as_mut()
+                {
+                    file_change.verification = self.pending_patch_checks.remove(&raw_id);
+                }
+                mapped
             }
         }
     }

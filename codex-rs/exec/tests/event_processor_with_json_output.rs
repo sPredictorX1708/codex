@@ -30,6 +30,7 @@ use codex_app_server_protocol::WebSearchAction as ApiWebSearchAction;
 use codex_app_server_protocol::WebSearchItem as ApiWebSearchItem;
 use codex_protocol::SessionId;
 use codex_protocol::ThreadId;
+use codex_protocol::items::apply_patch_check_item_id;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::models::WebSearchAction;
 use codex_protocol::protocol::AskForApproval;
@@ -936,11 +937,108 @@ fn file_change_completion_maps_change_kinds() {
                             },
                         ],
                         status: PatchApplyStatus::Completed,
+                        verification: None,
                     }),
                 },
             })],
             status: CodexStatus::Running,
         }
+    );
+}
+
+#[test]
+fn file_change_completion_carries_then_run_command() {
+    let mut processor = EventProcessorWithJsonOutput::new(/*last_message_path*/ None);
+    let check_id = apply_patch_check_item_id("patch-3");
+    let check_item =
+        |status, aggregated_output: Option<&str>, exit_code| ThreadItem::CommandExecution {
+            model_context: None,
+            sandbox_type: None,
+            id: check_id.clone(),
+            command: "/bin/bash -lc 'python3 -m unittest -q'".to_string(),
+            cwd: test_path_buf("/tmp/project").abs().into(),
+            process_id: Some("7".to_string()),
+            plugin_id: None,
+            script_path: None,
+            source: CommandExecutionSource::UnifiedExecStartup,
+            status,
+            command_actions: Vec::<CommandAction>::new(),
+            aggregated_output: aggregated_output.map(str::to_string),
+            exit_code,
+            duration_ms: Some(40),
+        };
+    let file_change_item = |status| ThreadItem::FileChange {
+        id: "patch-3".to_string(),
+        changes: vec![ApiFileUpdateChange {
+            path: "greeting.txt".to_string(),
+            kind: ApiPatchChangeKind::Add,
+            diff: "hello\n".to_string(),
+        }],
+        status,
+    };
+
+    let mut events = Vec::new();
+    for notification in [
+        ServerNotification::ItemStarted(ItemStartedNotification {
+            item: file_change_item(ApiPatchApplyStatus::InProgress),
+            thread_id: "thread-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            started_at_ms: 0,
+        }),
+        ServerNotification::ItemStarted(ItemStartedNotification {
+            item: check_item(ApiCommandExecutionStatus::InProgress, None, None),
+            thread_id: "thread-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            started_at_ms: 0,
+        }),
+        ServerNotification::ItemCompleted(ItemCompletedNotification {
+            item: check_item(
+                ApiCommandExecutionStatus::Failed,
+                Some("FAILED (failures=1)\n"),
+                Some(1),
+            ),
+            thread_id: "thread-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            completed_at_ms: 0,
+        }),
+        ServerNotification::ItemCompleted(ItemCompletedNotification {
+            item: file_change_item(ApiPatchApplyStatus::Completed),
+            thread_id: "thread-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            completed_at_ms: 0,
+        }),
+    ] {
+        events.extend(processor.collect_thread_events(notification).events);
+    }
+
+    assert_eq!(
+        serde_json::to_value(events).expect("serialize file change events"),
+        json!([
+            {
+                "type": "item.started",
+                "item": {
+                    "id": "item_0",
+                    "type": "file_change",
+                    "changes": [{"path": "greeting.txt", "kind": "add"}],
+                    "status": "in_progress",
+                },
+            },
+            {
+                "type": "item.completed",
+                "item": {
+                    "id": "item_0",
+                    "type": "file_change",
+                    "changes": [{"path": "greeting.txt", "kind": "add"}],
+                    "status": "completed",
+                    "verification": {
+                        "command": "/bin/bash -lc 'python3 -m unittest -q'",
+                        "aggregated_output": "FAILED (failures=1)\n",
+                        "exit_code": 1,
+                        "status": "failed",
+                    },
+                },
+            },
+        ])
     );
 }
 
@@ -977,6 +1075,7 @@ fn file_change_declined_maps_to_failed_status() {
                             kind: PatchChangeKind::Update,
                         }],
                         status: PatchApplyStatus::Failed,
+                        verification: None,
                     }),
                 },
             })],

@@ -3,9 +3,10 @@
 //!
 //! The official Lark grammar for the apply-patch format is:
 //!
-//! start: begin_patch environment_id? hunk+ end_patch
+//! start: begin_patch environment_id? hunk+ then_run? end_patch
 //! begin_patch: "*** Begin Patch" LF
 //! environment_id: "*** Environment ID: " filename LF
+//! then_run: "*** Then Run: " /(.+)/ LF
 //! end_patch: "*** End Patch" LF?
 //!
 //! hunk: add_hunk | delete_hunk | update_hunk
@@ -41,6 +42,7 @@ pub(crate) const DELETE_FILE_MARKER: &str = "*** Delete File: ";
 pub(crate) const UPDATE_FILE_MARKER: &str = "*** Update File: ";
 pub(crate) const MOVE_TO_MARKER: &str = "*** Move to: ";
 pub(crate) const EOF_MARKER: &str = "*** End of File";
+pub(crate) const THEN_RUN_MARKER: &str = "*** Then Run:";
 pub(crate) const CHANGE_CONTEXT_MARKER: &str = "@@ ";
 pub(crate) const EMPTY_CHANGE_CONTEXT_MARKER: &str = "@@";
 
@@ -202,11 +204,13 @@ fn parse_patch_text(patch: &str, mode: ParseMode) -> Result<ApplyPatchArgs, Pars
     parser.push_delta(&patch)?;
     let hunks = parser.finish()?;
     let environment_id = parser.environment_id().map(str::to_owned);
+    let verify_command = parser.verify_command().map(str::to_owned);
     Ok(ApplyPatchArgs {
         hunks,
         patch,
         workdir: None,
         environment_id,
+        verify_command,
     })
 }
 
@@ -447,6 +451,7 @@ fn test_parse_patch_preserves_end_of_file_marker() {
             patch: patch.to_string(),
             workdir: None,
             environment_id: None,
+            verify_command: None,
         })
     );
 }
@@ -587,6 +592,7 @@ fn test_parse_patch_lenient() {
             patch: patch_text.to_string(),
             workdir: None,
             environment_id: None,
+            verify_command: None,
         })
     );
 
@@ -602,6 +608,7 @@ fn test_parse_patch_lenient() {
             patch: patch_text.to_string(),
             workdir: None,
             environment_id: None,
+            verify_command: None,
         })
     );
 
@@ -617,6 +624,7 @@ fn test_parse_patch_lenient() {
             patch: patch_text.to_string(),
             workdir: None,
             environment_id: None,
+            verify_command: None,
         })
     );
 
@@ -663,6 +671,7 @@ fn test_parse_patch_environment_id_preamble() {
             patch: "*** Begin Patch\n*** Environment ID: remote\n*** Add File: hello.txt\n+hello\n*** End Patch".to_string(),
             workdir: None,
             environment_id: Some("remote".to_string()),
+            verify_command: None,
         })
     );
 
@@ -677,6 +686,91 @@ fn test_parse_patch_environment_id_preamble() {
         ),
         Err(InvalidPatchError(
             "apply_patch environment_id cannot be empty".to_string()
+        ))
+    );
+}
+
+#[test]
+fn test_parse_patch_then_run_line() {
+    assert_eq!(
+        parse_patch_text(
+            "*** Begin Patch\n\
+             *** Update File: file.py\n\
+             @@\n\
+             +line\n\
+             *** Then Run: python3 -m unittest -q\n\
+             *** End Patch",
+            ParseMode::Strict
+        ),
+        Ok(ApplyPatchArgs {
+            hunks: vec![UpdateFile {
+                path: PathBuf::from("file.py"),
+                move_path: None,
+                chunks: vec![UpdateFileChunk {
+                    change_context: None,
+                    old_lines: vec![],
+                    new_lines: vec!["line".to_string()],
+                    context_line_indices: vec![],
+                    is_end_of_file: false,
+                }],
+            }],
+            patch: "*** Begin Patch\n*** Update File: file.py\n@@\n+line\n*** Then Run: python3 -m unittest -q\n*** End Patch".to_string(),
+            workdir: None,
+            environment_id: None,
+            verify_command: Some("python3 -m unittest -q".to_string()),
+        })
+    );
+
+    assert_eq!(
+        parse_patch_text(
+            "*** Begin Patch\n\
+             *** Add File: hello.txt\n\
+             +hello\n\
+             *** Then Run: cat hello.txt\n\
+             *** End Patch",
+            ParseMode::Strict
+        )
+        .map(|args| args.verify_command),
+        Ok(Some("cat hello.txt".to_string()))
+    );
+
+    assert_eq!(
+        parse_patch_text(
+            "*** Begin Patch\n\
+             *** Then Run: make test\n\
+             *** End Patch",
+            ParseMode::Strict
+        ),
+        Err(InvalidPatchError(
+            "'*** Then Run:' must follow at least one hunk".to_string()
+        ))
+    );
+    assert_eq!(
+        parse_patch_text(
+            "*** Begin Patch\n\
+             *** Add File: hello.txt\n\
+             +hello\n\
+             *** Then Run:   \n\
+             *** End Patch",
+            ParseMode::Strict
+        ),
+        Err(InvalidPatchError(
+            "'*** Then Run:' needs a command".to_string()
+        ))
+    );
+    assert_eq!(
+        parse_patch_text(
+            "*** Begin Patch\n\
+             *** Add File: hello.txt\n\
+             +hello\n\
+             *** Then Run: cat hello.txt\n\
+             *** Add File: other.txt\n\
+             +other\n\
+             *** End Patch",
+            ParseMode::Strict
+        ),
+        Err(InvalidPatchError(
+            "'*** Then Run:' must be the last line before '*** End Patch'".to_string()
         ))
     );
 }

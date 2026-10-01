@@ -39,6 +39,8 @@ export type FileChangeItem = {
   changes: FileUpdateChange[];
   /** Whether the patch ultimately succeeded or failed. */
   status: PatchApplyStatus;
+  /** The command the patch's `*** Then Run:` line ran after the patch applied. */
+  verification?: Omit<CommandExecutionItem, "id" | "type">;
 };
 
 /** The status of an MCP tool call. */

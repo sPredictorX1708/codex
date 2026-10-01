@@ -85,9 +85,19 @@ fn post_unified_exec_tool_use_payload(
         return None;
     };
 
-    let tool_input = result.post_tool_use_input(&invocation.payload)?;
     let tool_use_id = result.post_tool_use_id(&invocation.call_id);
-    let tool_response = result.post_tool_use_response(&tool_use_id, &invocation.payload)?;
+    bash_post_tool_use_payload(tool_use_id, &invocation.payload, result)
+}
+
+/// Builds the Bash `PostToolUse` payload for a finished command, as the
+/// `exec_command` handler reports it.
+pub(crate) fn bash_post_tool_use_payload(
+    tool_use_id: String,
+    payload: &ToolPayload,
+    result: &dyn ToolOutput,
+) -> Option<PostToolUsePayload> {
+    let tool_input = result.post_tool_use_input(payload)?;
+    let tool_response = result.post_tool_use_response(&tool_use_id, payload)?;
     Some(PostToolUsePayload {
         tool_name: HookToolName::bash(),
         tool_use_id,

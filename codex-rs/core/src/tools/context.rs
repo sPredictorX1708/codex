@@ -440,9 +440,7 @@ impl ToolOutput for ExecCommandToolOutput {
             return None;
         }
 
-        Some(JsonValue::String(
-            self.truncated_output_with_policy(self.model_output_policy()),
-        ))
+        Some(JsonValue::String(self.model_visible_output()))
     }
 
     fn code_mode_result(&self, _payload: &ToolPayload) -> JsonValue {
@@ -486,6 +484,11 @@ impl ExecCommandToolOutput {
         } else {
             self.truncation_policy
         }
+    }
+
+    /// The output as the model sees it, truncated to the model's output budget.
+    pub(crate) fn model_visible_output(&self) -> String {
+        self.truncated_output_with_policy(self.model_output_policy())
     }
 
     pub(crate) fn truncated_output(&self, max_tokens: usize) -> String {

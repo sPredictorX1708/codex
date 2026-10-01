@@ -430,6 +430,24 @@ pub struct FileChangeItem {
     pub stderr: Option<String>,
 }
 
+/// Ends the item id of the command an `apply_patch` call runs after its patch
+/// applies (the patch's `*** Then Run:` line).
+const APPLY_PATCH_CHECK_ITEM_ID_SUFFIX: &str = ":then_run";
+
+/// Returns the command execution item id for the check command of the
+/// `apply_patch` call `call_id`.
+pub fn apply_patch_check_item_id(call_id: &str) -> String {
+    format!("{call_id}{APPLY_PATCH_CHECK_ITEM_ID_SUFFIX}")
+}
+
+/// Returns the `apply_patch` call id that a command execution item checks, when
+/// `item_id` was built by [`apply_patch_check_item_id`].
+pub fn apply_patch_check_call_id(item_id: &str) -> Option<&str> {
+    item_id
+        .strip_suffix(APPLY_PATCH_CHECK_ITEM_ID_SUFFIX)
+        .filter(|call_id| !call_id.is_empty())
+}
+
 /// UI resource and display preference for model invocations, captured from the tool descriptor.
 #[derive(Debug, Clone, Deserialize, Serialize, TS, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -774,6 +792,14 @@ mod tests {
     use codex_extension_items::sleep::SleepItem;
     use pretty_assertions::assert_eq;
     use serde_json::json;
+
+    #[test]
+    fn apply_patch_check_item_id_round_trips_its_call_id() {
+        let item_id = apply_patch_check_item_id("call-1");
+        assert_eq!(apply_patch_check_call_id(&item_id), Some("call-1"));
+        assert_eq!(apply_patch_check_call_id("call-1"), None);
+        assert_eq!(apply_patch_check_call_id(":then_run"), None);
+    }
 
     #[test]
     fn sleep_extension_item_preserves_type_and_kind() {

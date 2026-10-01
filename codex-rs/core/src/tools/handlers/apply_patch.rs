@@ -10,6 +10,10 @@ use tokio_util::sync::CancellationToken;
 use crate::apply_patch;
 use crate::apply_patch::convert_apply_patch_to_protocol;
 use crate::function_tool::FunctionCallError;
+use crate::hook_runtime::PreToolUseHookResult;
+use crate::hook_runtime::record_additional_contexts;
+use crate::hook_runtime::run_post_tool_use_hooks;
+use crate::hook_runtime::run_pre_tool_use_hooks;
 use crate::safety::PatchPolicyMatcher;
 use crate::safety::PatchSandboxRoute;
 use crate::session::session::Session;
@@ -17,6 +21,7 @@ use crate::session::step_context::StepContext;
 use crate::session::turn_context::TurnContext;
 use crate::session::turn_context::TurnEnvironment;
 use crate::tools::context::ApplyPatchToolOutput;
+use crate::tools::context::ExecCommandToolOutput;
 use crate::tools::context::FunctionToolOutput;
 use crate::tools::context::SharedTurnDiffTracker;
 use crate::tools::context::ToolInvocation;
@@ -27,7 +32,13 @@ use crate::tools::events::ToolEventCtx;
 use crate::tools::handlers::apply_granted_turn_permissions;
 use crate::tools::handlers::apply_patch_spec::create_apply_patch_freeform_tool;
 use crate::tools::handlers::file_system_sandbox_policy_context_for_cwd;
+use crate::tools::handlers::implicit_granted_permissions;
+use crate::tools::handlers::parse_arguments;
 use crate::tools::handlers::resolve_tool_environment;
+use crate::tools::handlers::unified_exec::ExecCommandArgs;
+use crate::tools::handlers::unified_exec::bash_post_tool_use_payload;
+use crate::tools::handlers::unified_exec::get_command;
+use crate::tools::handlers::unified_exec::shell_mode_for_environment;
 use crate::tools::handlers::updated_hook_command;
 use crate::tools::hook_names::HookToolName;
 use crate::tools::orchestrator::ToolOrchestrator;
@@ -39,6 +50,10 @@ use crate::tools::registry::ToolExecutor;
 use crate::tools::runtimes::apply_patch::ApplyPatchRequest;
 use crate::tools::runtimes::apply_patch::ApplyPatchRuntime;
 use crate::tools::sandboxing::ToolCtx;
+use crate::unified_exec::ExecCommandRequest;
+use crate::unified_exec::UnifiedExecContext;
+use crate::unified_exec::UnifiedExecError;
+use crate::unified_exec::UnifiedExecProcessManager;
 use crate::windows_sandbox::windows_sandbox_level_for_legacy_checks;
 use codex_apply_patch::ApplyPatchAction;
 use codex_apply_patch::ApplyPatchFileChange;
@@ -47,6 +62,8 @@ use codex_apply_patch::Hunk;
 use codex_apply_patch::StreamingPatchParser;
 use codex_exec_server::ExecutorFileSystem;
 use codex_features::Feature;
+use codex_hooks::PostToolUseOutcome;
+use codex_protocol::items::apply_patch_check_item_id;
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::models::FileSystemPermissions;
 use codex_protocol::protocol::EventMsg;
@@ -58,6 +75,7 @@ use codex_sandboxing::policy_transforms::normalize_additional_permissions;
 use codex_sandboxing::policy_transforms::normalize_additional_permissions_with_context;
 use codex_tools::ToolName;
 use codex_tools::ToolSpec;
+use codex_utils_output_truncation::approx_token_count;
 use codex_utils_path_uri::PathUri;
 
 const APPLY_PATCH_ARGUMENT_DIFF_BUFFER_INTERVAL: Duration = Duration::from_millis(500);
@@ -502,12 +520,16 @@ pub(crate) async fn intercept_apply_patch(
 }
 
 async fn execute_verified_patch(
-    action: ApplyPatchAction,
+    mut action: ApplyPatchAction,
     turn_environment: TurnEnvironment,
     tracker: Option<&SharedTurnDiffTracker>,
     tool_ctx: ToolCtx,
 ) -> Result<String, FunctionCallError> {
     let cwd = action.cwd.clone();
+    let verify = action
+        .verify_command
+        .take()
+        .map(|command| (command, turn_environment.clone()));
     let sandbox_context = turn_environment.sandbox_context(/*additional_permissions*/ None);
     let policy_context = file_system_sandbox_policy_context_for_cwd(&sandbox_context, &cwd);
     let sandbox_route = if turn_environment.environment.is_remote() {
@@ -605,7 +627,249 @@ async fn execute_verified_patch(
         &tool_ctx.call_id,
         tracker,
     );
-    emitter.finish(event_ctx, result, delta.as_ref()).await
+    let then_run = match (&result, verify) {
+        (Ok(output), Some((command, environment))) if output.exit_code == 0 => {
+            Some(run_then_run_command(command, &cwd, &environment, &tool_ctx).await)
+        }
+        _ => None,
+    };
+    let mut content = emitter.finish(event_ctx, result, delta.as_ref()).await?;
+    if let Some(then_run) = then_run {
+        if !content.is_empty() && !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push('\n');
+        content.push_str(&then_run);
+    }
+    Ok(content)
+}
+
+/// Longest a patch's `*** Then Run:` command may run before it is killed.
+const THEN_RUN_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Runs a patch's `*** Then Run:` command after the patch applied and returns
+/// the section appended to the model's view of the `apply_patch` result.
+///
+/// The command goes through the lifecycle an `exec_command` call with the same
+/// command gets: Bash `PreToolUse` hooks (which may block or rewrite it), the
+/// unified exec runtime with its exec policy, approval, sandbox, and command
+/// item events, then Bash `PostToolUse` hooks on its result. Its command item
+/// uses [`apply_patch_check_item_id`], so clients can tie it to the patch; a
+/// blocking `PostToolUse` hook or hook feedback replaces the command's output
+/// in the model's view, as it replaces an `exec_command` result.
+async fn run_then_run_command(
+    command: String,
+    cwd: &PathUri,
+    turn_environment: &TurnEnvironment,
+    tool_ctx: &ToolCtx,
+) -> String {
+    let hook_result = run_pre_tool_use_hooks(
+        &tool_ctx.session,
+        tool_ctx.step_context.as_ref(),
+        tool_ctx.call_id.clone(),
+        &HookToolName::bash(),
+        &serde_json::json!({ "command": command }),
+    )
+    .await;
+    let command = match hook_result {
+        PreToolUseHookResult::Blocked(message) => {
+            return format!("Then Run: {command}\nNot run: {message}");
+        }
+        PreToolUseHookResult::Continue {
+            updated_input: Some(updated_input),
+        } => match updated_hook_command(&updated_input) {
+            Ok(updated) => updated.to_string(),
+            Err(err) => return format!("Then Run: {command}\nNot run: {err}"),
+        },
+        PreToolUseHookResult::Continue {
+            updated_input: None,
+        } => command,
+    };
+    let output = match exec_then_run_command(&command, cwd, turn_environment, tool_ctx).await {
+        Ok(output) => output,
+        Err(UnifiedExecError::SandboxDenied {
+            output,
+            original_token_count,
+            output_omitted_bytes,
+            ..
+        }) => {
+            let text = output.aggregated_output.text;
+            ExecCommandToolOutput {
+                event_call_id: apply_patch_check_item_id(&tool_ctx.call_id),
+                chunk_id: String::new(),
+                wall_time: output.duration,
+                original_token_count: Some(
+                    original_token_count.unwrap_or_else(|| approx_token_count(&text)),
+                ),
+                raw_output: text.into_bytes(),
+                truncation_policy: tool_ctx
+                    .step_context
+                    .settings
+                    .model_info
+                    .truncation_policy
+                    .into(),
+                max_output_tokens: None,
+                process_id: None,
+                exit_code: Some(output.exit_code),
+                output_omitted_bytes,
+                hook_command: Some(command.clone()),
+            }
+        }
+        Err(err) => return format!("Then Run: {command}\nFailed to run: {err}"),
+    };
+    let hook_payload = ToolPayload::Function {
+        arguments: serde_json::json!({ "cmd": command }).to_string(),
+    };
+    let post_tool_use_outcome =
+        match bash_post_tool_use_payload(tool_ctx.call_id.clone(), &hook_payload, &output) {
+            Some(payload) => Some(
+                run_post_tool_use_hooks(
+                    &tool_ctx.session,
+                    tool_ctx.step_context.as_ref(),
+                    payload.tool_use_id,
+                    payload.tool_name.name().to_string(),
+                    payload.tool_name.matcher_aliases().to_vec(),
+                    payload.tool_input,
+                    payload.tool_response,
+                )
+                .await,
+            ),
+            None => None,
+        };
+    if let Some(outcome) = &post_tool_use_outcome {
+        record_additional_contexts(
+            &tool_ctx.session,
+            &tool_ctx.step_context.turn,
+            outcome.additional_contexts.clone(),
+        )
+        .await;
+    }
+    let body = match post_tool_use_outcome {
+        Some(outcome) if outcome.should_block => format!(
+            "Result blocked by PostToolUse hook: {}",
+            outcome
+                .feedback_message
+                .unwrap_or_else(|| "PostToolUse hook blocked the tool result".to_string())
+        ),
+        Some(PostToolUseOutcome {
+            feedback_message: Some(feedback_message),
+            ..
+        }) => feedback_message,
+        Some(_) | None => {
+            let exit_code = output
+                .exit_code
+                .map_or_else(|| "unknown".to_string(), |code| code.to_string());
+            let limit = if output.wall_time >= THEN_RUN_TIMEOUT {
+                format!(
+                    " (killed at the {} second limit)",
+                    THEN_RUN_TIMEOUT.as_secs()
+                )
+            } else {
+                String::new()
+            };
+            format!(
+                "Exit code: {exit_code}{limit}\nOutput:\n{}",
+                output.model_visible_output()
+            )
+        }
+    };
+    format!("Then Run: {command}\n{body}")
+}
+
+/// Runs `command` to completion within [`THEN_RUN_TIMEOUT`] the way a one-shot
+/// `exec_command` call with only `cmd` set runs it: session shell, default
+/// sandbox permissions plus any granted to the turn, no TTY.
+async fn exec_then_run_command(
+    command: &str,
+    cwd: &PathUri,
+    turn_environment: &TurnEnvironment,
+    tool_ctx: &ToolCtx,
+) -> Result<ExecCommandToolOutput, UnifiedExecError> {
+    let session = &tool_ctx.session;
+    let turn = &tool_ctx.step_context.turn;
+    let item_id = apply_patch_check_item_id(&tool_ctx.call_id);
+    let args: ExecCommandArgs = parse_arguments(&serde_json::json!({ "cmd": command }).to_string())
+        .map_err(|err| UnifiedExecError::create_process(err.to_string()))?;
+    let shell_mode = shell_mode_for_environment(
+        &turn.unified_exec_shell_mode,
+        turn_environment.environment.as_ref(),
+    );
+    let shell = turn_environment
+        .shell
+        .clone()
+        .map(Arc::new)
+        .unwrap_or_else(|| session.user_shell());
+    let resolved_command = get_command(
+        &args,
+        shell,
+        &shell_mode,
+        turn_environment.config().allow_login_shell,
+    )
+    .map_err(UnifiedExecError::create_process)?;
+    let effective_permissions = apply_granted_turn_permissions(
+        session.as_ref(),
+        turn_environment,
+        cwd,
+        crate::sandboxing::SandboxPermissions::UseDefault,
+        /*additional_permissions*/ None,
+    )
+    .await;
+    let additional_permissions = implicit_granted_permissions(
+        crate::sandboxing::SandboxPermissions::UseDefault,
+        /*additional_permissions*/ None,
+        &effective_permissions,
+    );
+    let native_cwd = cwd.to_abs_path().ok();
+    crate::maybe_emit_implicit_skill_invocation(
+        session.as_ref(),
+        turn.as_ref(),
+        command,
+        cwd,
+        native_cwd.as_ref(),
+        &turn_environment.selection.environment_id,
+    )
+    .await;
+    let file_system = turn_environment.environment.get_filesystem();
+    crate::tools::lifecycle::notify_command_start(
+        session.as_ref(),
+        turn.as_ref(),
+        &item_id,
+        &resolved_command.command,
+        cwd,
+        file_system.as_ref(),
+    )
+    .await;
+    let process_id = session
+        .services
+        .unified_exec_manager
+        .allocate_process_id()
+        .await;
+    let request = ExecCommandRequest {
+        command: resolved_command.command,
+        shell_type: resolved_command.shell_type,
+        hook_command: command.to_string(),
+        process_id,
+        yield_time_ms: 0,
+        max_output_tokens: None,
+        cwd: cwd.clone(),
+        sandbox_cwd: turn_environment.cwd().clone(),
+        turn_environment: turn_environment.clone(),
+        shell_mode,
+        network: turn.network.clone(),
+        tty: false,
+        sandbox_permissions: effective_permissions.sandbox_permissions,
+        additional_permissions,
+        additional_permissions_preapproved: effective_permissions.permissions_preapproved,
+        justification: None,
+        prefix_rule: None,
+    };
+    let context = UnifiedExecContext::new(
+        Arc::clone(session),
+        Arc::clone(&tool_ctx.step_context),
+        tool_ctx.cancellation_token.clone(),
+        item_id,
+    );
+    UnifiedExecProcessManager::exec_command_to_completion(request, &context, THEN_RUN_TIMEOUT).await
 }
 
 fn require_environment_id(

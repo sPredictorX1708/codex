@@ -5131,6 +5131,234 @@ async fn pre_tool_use_blocks_apply_patch_before_execution() -> Result<()> {
 }
 
 #[tokio::test]
+async fn pre_tool_use_bash_hook_blocks_apply_patch_then_run_command() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = start_mock_server().await;
+    let call_id = "pretooluse-apply-patch-then-run";
+    let file_name = "pre_tool_use_then_run.txt";
+    let marker = "pre_tool_use_then_run_marker.txt";
+    let command = format!("printf ran > {marker}");
+    let patch = format!(
+        "*** Begin Patch\n*** Add File: {file_name}\n+patched\n*** Then Run: {command}\n*** End Patch"
+    );
+    let responses = mount_sse_sequence(
+        &server,
+        vec![
+            sse(vec![
+                ev_response_created("resp-1"),
+                ev_apply_patch_custom_tool_call(call_id, &patch),
+                ev_completed("resp-1"),
+            ]),
+            sse(vec![
+                ev_response_created("resp-2"),
+                ev_assistant_message("msg-1", "check command blocked"),
+                ev_completed("resp-2"),
+            ]),
+        ],
+    )
+    .await;
+
+    let mut builder = test_codex()
+        .with_pre_build_hook(|home| {
+            write_pre_tool_use_hook(home, Some("^Bash$"), "exit_2", "blocked check command")
+                .expect("failed to write pre tool use hook test fixture");
+        })
+        .with_config(|config| {
+            trust_discovered_hooks(config);
+        });
+    let test = builder.build(&server).await?;
+
+    test.submit_turn("apply the patch and run its check")
+        .await?;
+
+    let requests = responses.requests();
+    assert_eq!(requests.len(), 2);
+    let output_item = requests[1].custom_tool_call_output(call_id);
+    let output = output_item
+        .get("output")
+        .and_then(Value::as_str)
+        .expect("apply_patch output string");
+    assert!(
+        output.contains(&format!(
+            "Then Run: {command}\nNot run: Command blocked by PreToolUse hook: blocked check command"
+        )),
+        "blocked check command should be reported after the patch result: {output}",
+    );
+    assert!(
+        test.workspace_path(file_name).exists(),
+        "the patch itself should still apply"
+    );
+    assert!(
+        !test.workspace_path(marker).exists(),
+        "blocked check command should not execute"
+    );
+
+    let hook_inputs = read_pre_tool_use_hook_inputs(test.codex_home_path())?;
+    assert_eq!(hook_inputs.len(), 1);
+    assert_eq!(hook_inputs[0]["tool_name"], "Bash");
+    assert_eq!(hook_inputs[0]["tool_use_id"], call_id);
+    assert_eq!(hook_inputs[0]["tool_input"]["command"], command);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn post_tool_use_bash_hook_blocks_apply_patch_then_run_result() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = start_mock_server().await;
+    let call_id = "posttooluse-apply-patch-then-run";
+    let file_name = "post_tool_use_then_run.txt";
+    let command = "printf 'then-run-%s' output";
+    let patch = format!(
+        "*** Begin Patch\n*** Add File: {file_name}\n+patched\n*** Then Run: {command}\n*** End Patch"
+    );
+    let responses = mount_sse_sequence(
+        &server,
+        vec![
+            sse(vec![
+                ev_response_created("resp-1"),
+                ev_apply_patch_custom_tool_call(call_id, &patch),
+                ev_completed("resp-1"),
+            ]),
+            sse(vec![
+                ev_response_created("resp-2"),
+                ev_assistant_message("msg-1", "check result blocked"),
+                ev_completed("resp-2"),
+            ]),
+        ],
+    )
+    .await;
+
+    let reason = "check output looked sketchy";
+    let mut builder = test_codex()
+        .with_pre_build_hook(|home| {
+            write_post_tool_use_hook(home, Some("^Bash$"), "decision_block", reason)
+                .expect("failed to write post tool use hook test fixture");
+        })
+        .with_config(|config| {
+            trust_discovered_hooks(config);
+        });
+    let test = builder.build(&server).await?;
+
+    test.submit_turn("apply the patch and run its check")
+        .await?;
+
+    let requests = responses.requests();
+    assert_eq!(requests.len(), 2);
+    let output_item = requests[1].custom_tool_call_output(call_id);
+    let output = output_item
+        .get("output")
+        .and_then(Value::as_str)
+        .expect("apply_patch output string");
+    assert!(
+        output.contains("Success. Updated the following files:"),
+        "the applied patch should still be reported: {output}",
+    );
+    assert!(
+        output.ends_with(&format!(
+            "Then Run: {command}\nResult blocked by PostToolUse hook: {reason}"
+        )),
+        "the hook feedback should replace the check output: {output}",
+    );
+    assert!(
+        !output.contains("then-run-output"),
+        "the blocked check output should not reach the model: {output}",
+    );
+    assert!(
+        test.workspace_path(file_name).exists(),
+        "the patch itself should still apply"
+    );
+
+    let hook_inputs = read_post_tool_use_hook_inputs(test.codex_home_path())?;
+    assert_eq!(hook_inputs.len(), 1);
+    assert_eq!(hook_inputs[0]["tool_name"], "Bash");
+    assert_eq!(hook_inputs[0]["tool_use_id"], call_id);
+    assert_eq!(hook_inputs[0]["tool_input"]["command"], command);
+    assert_eq!(
+        hook_inputs[0]["tool_response"],
+        Value::String("then-run-output".to_string())
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn post_tool_use_bash_hook_context_reaches_model_after_apply_patch_then_run() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = start_mock_server().await;
+    let call_id = "posttooluse-apply-patch-then-run-context";
+    let file_name = "post_tool_use_then_run_context.txt";
+    let command = "printf checked";
+    let patch = format!(
+        "*** Begin Patch\n*** Add File: {file_name}\n+patched\n*** Then Run: {command}\n*** End Patch"
+    );
+    let responses = mount_sse_sequence(
+        &server,
+        vec![
+            sse(vec![
+                ev_response_created("resp-1"),
+                ev_apply_patch_custom_tool_call(call_id, &patch),
+                ev_completed("resp-1"),
+            ]),
+            sse(vec![
+                ev_response_created("resp-2"),
+                ev_assistant_message("msg-1", "check context observed"),
+                ev_completed("resp-2"),
+            ]),
+        ],
+    )
+    .await;
+
+    let post_context = "Remember the check command post-tool note.";
+    let mut builder = test_codex()
+        .with_pre_build_hook(|home| {
+            write_post_tool_use_hook(home, Some("^Bash$"), "context", post_context)
+                .expect("failed to write post tool use hook test fixture");
+        })
+        .with_config(|config| {
+            trust_discovered_hooks(config);
+        });
+    let test = builder.build(&server).await?;
+
+    test.submit_turn("apply the patch and run its check")
+        .await?;
+
+    let requests = responses.requests();
+    assert_eq!(requests.len(), 2);
+    assert!(
+        requests[1]
+            .message_input_texts("developer")
+            .contains(&post_context.to_string()),
+        "follow-up request should include the check command's post tool use context",
+    );
+    let output_item = requests[1].custom_tool_call_output(call_id);
+    let output = output_item
+        .get("output")
+        .and_then(Value::as_str)
+        .expect("apply_patch output string");
+    assert!(
+        output.ends_with(&format!(
+            "Then Run: {command}\nExit code: 0\nOutput:\nchecked"
+        )),
+        "a context-only hook leaves the check output in place: {output}",
+    );
+
+    let hook_inputs = read_post_tool_use_hook_inputs(test.codex_home_path())?;
+    assert_eq!(hook_inputs.len(), 1);
+    assert_eq!(hook_inputs[0]["tool_name"], "Bash");
+    assert_eq!(hook_inputs[0]["tool_input"]["command"], command);
+    assert_eq!(
+        hook_inputs[0]["tool_response"],
+        Value::String("checked".to_string())
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn pre_tool_use_rewrites_apply_patch_before_execution() -> Result<()> {
     skip_if_no_network!(Ok(()));
 

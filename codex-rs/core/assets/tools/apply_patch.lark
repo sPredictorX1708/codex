@@ -1,5 +1,6 @@
-start: begin_patch hunk+ end_patch
+start: begin_patch hunk+ then_run? end_patch
 begin_patch: "*** Begin Patch" LF
+then_run: "*** Then Run: " /(.+)/ LF
 end_patch: "*** End Patch" LF?
 
 hunk: add_hunk | delete_hunk | update_hunk

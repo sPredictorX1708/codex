@@ -26,6 +26,7 @@ use codex_protocol::config_types::ApprovalsReviewer;
 use codex_protocol::config_types::CollaborationMode;
 use codex_protocol::config_types::ModeKind;
 use codex_protocol::config_types::Settings;
+use codex_protocol::items::apply_patch_check_item_id;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::permissions::FileSystemAccessMode;
 use codex_protocol::permissions::FileSystemPath;
@@ -523,6 +524,98 @@ D delete.txt
         "line1\nchanged\n"
     );
     assert!(!harness.path_exists("delete.txt").await?);
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn apply_patch_cli_then_run_appends_command_result() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let harness = apply_patch_harness().await?;
+    let patch = "*** Begin Patch\n*** Add File: greeting.txt\n+hello from the patch\n*** Then Run: cat greeting.txt && exit 3\n*** End Patch";
+    let call_id = "apply-then-run";
+    mount_apply_patch(&harness, call_id, patch, "done").await;
+
+    submit_without_wait(&harness, "please add the greeting and check it").await?;
+    let check_id = apply_patch_check_item_id(call_id);
+    let mut events = Vec::new();
+    let mut check_end = None;
+    wait_for_event(&harness.test().codex, |event| match event {
+        EventMsg::PatchApplyBegin(begin) => {
+            events.push(format!("patch begin {}", begin.call_id));
+            false
+        }
+        EventMsg::ExecCommandBegin(begin) => {
+            events.push(format!("exec begin {}", begin.call_id));
+            false
+        }
+        EventMsg::ExecCommandEnd(end) => {
+            events.push(format!("exec end {}", end.call_id));
+            check_end = Some(end.clone());
+            false
+        }
+        EventMsg::PatchApplyEnd(end) => {
+            events.push(format!("patch end {} {}", end.call_id, end.success));
+            false
+        }
+        EventMsg::TurnComplete(_) => true,
+        _ => false,
+    })
+    .await;
+
+    assert_eq!(
+        events,
+        vec![
+            format!("patch begin {call_id}"),
+            format!("exec begin {check_id}"),
+            format!("exec end {check_id}"),
+            format!("patch end {call_id} true"),
+        ]
+    );
+    let check_end = check_end.expect("expected ExecCommandEnd for the check command");
+    assert_eq!(check_end.exit_code, 3);
+    assert_eq!(check_end.aggregated_output, "hello from the patch\n");
+    assert_eq!(
+        check_end.command.last().map(String::as_str),
+        Some("cat greeting.txt && exit 3")
+    );
+
+    let expected = r"(?s)^Exit code: 0
+Wall time: [0-9]+(?:\.[0-9]+)? seconds
+Output:
+Success. Updated the following files:
+A greeting.txt
+
+Then Run: cat greeting.txt && exit 3
+Exit code: 3
+Output:
+hello from the patch
+?$";
+    assert_regex_match(expected, &harness.apply_patch_output(call_id).await);
+    assert_eq!(
+        harness.read_file_text("greeting.txt").await?,
+        "hello from the patch\n"
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn apply_patch_cli_then_run_skipped_when_patch_fails() -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let harness = apply_patch_harness().await?;
+    let patch = "*** Begin Patch\n*** Update File: missing.txt\n@@\n-old\n+new\n*** Then Run: touch ran.txt\n*** End Patch";
+    let call_id = "apply-then-run-failed-patch";
+    mount_apply_patch(&harness, call_id, patch, "done").await;
+
+    harness.submit("please update the missing file").await?;
+
+    let out = harness.apply_patch_output(call_id).await;
+    assert!(out.contains("apply_patch verification failed"), "{out}");
+    assert!(!out.contains("Then Run:"), "{out}");
+    assert!(!harness.path_exists("ran.txt").await?);
 
     Ok(())
 }

@@ -186,6 +186,10 @@ pub enum PatchApplyStatus {
 pub struct FileChangeItem {
     pub changes: Vec<FileUpdateChange>,
     pub status: PatchApplyStatus,
+    /// The command the patch's `*** Then Run:` line ran after the patch applied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub verification: Option<CommandExecutionItem>,
 }
 
 /// Indicates the type of the file change.

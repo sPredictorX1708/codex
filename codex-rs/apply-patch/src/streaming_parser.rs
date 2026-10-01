@@ -10,6 +10,7 @@ use crate::parser::EOF_MARKER;
 use crate::parser::Hunk;
 use crate::parser::MOVE_TO_MARKER;
 use crate::parser::ParseError;
+use crate::parser::THEN_RUN_MARKER;
 use crate::parser::UPDATE_FILE_MARKER;
 use crate::parser::UpdateFileChunk;
 
@@ -30,6 +31,7 @@ struct StreamingParserState {
     mode: StreamingParserMode,
     hunks: Vec<Hunk>,
     environment_id: Option<String>,
+    verify_command: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -42,12 +44,18 @@ enum StreamingParserMode {
     UpdateFile {
         hunk_line_number: usize,
     },
+    ThenRun,
     EndedPatch,
 }
 
 impl StreamingPatchParser {
     pub fn environment_id(&self) -> Option<&str> {
         self.state.environment_id.as_deref()
+    }
+
+    /// Returns the command of the patch's `*** Then Run:` line, if it has one.
+    pub fn verify_command(&self) -> Option<&str> {
+        self.state.verify_command.as_deref()
     }
 
     fn ensure_update_hunk_is_not_empty(&self, line: &str) -> Result<(), ParseError> {
@@ -102,6 +110,23 @@ impl StreamingPatchParser {
         if trimmed == END_PATCH_MARKER {
             self.ensure_update_hunk_is_not_empty(trimmed)?;
             self.state.mode = StreamingParserMode::EndedPatch;
+            return Ok(true);
+        }
+        if let Some(command) = trimmed.strip_prefix(THEN_RUN_MARKER) {
+            if self.state.hunks.is_empty() {
+                return Err(InvalidPatchError(
+                    "'*** Then Run:' must follow at least one hunk".to_string(),
+                ));
+            }
+            self.ensure_update_hunk_is_not_empty(trimmed)?;
+            let command = command.trim();
+            if command.is_empty() {
+                return Err(InvalidPatchError(
+                    "'*** Then Run:' needs a command".to_string(),
+                ));
+            }
+            self.state.verify_command = Some(command.to_string());
+            self.state.mode = StreamingParserMode::ThenRun;
             return Ok(true);
         }
         if let Some(path) = trimmed.strip_prefix(ADD_FILE_MARKER) {
@@ -365,6 +390,18 @@ impl StreamingPatchParser {
                     ),
                     line_number: self.line_number,
                 })
+            }
+            StreamingParserMode::ThenRun => {
+                if trimmed == END_PATCH_MARKER {
+                    self.state.mode = StreamingParserMode::EndedPatch;
+                    return Ok(());
+                }
+                if trimmed.is_empty() {
+                    return Ok(());
+                }
+                Err(InvalidPatchError(
+                    "'*** Then Run:' must be the last line before '*** End Patch'".to_string(),
+                ))
             }
             StreamingParserMode::EndedPatch => {
                 if trimmed.is_empty() {
