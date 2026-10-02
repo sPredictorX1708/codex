@@ -975,8 +975,14 @@ impl ModelClient {
         );
         let prompt_cache_key = Some(self.prompt_cache_key(responses_metadata));
         let service_tier = if self.state.provider.info().is_amazon_bedrock() {
-            // Bedrock only supports the implicit default tier, including with custom catalogs.
-            None
+            // Bedrock accepts only the tiers its catalog lists (Ultrafast for GPT-6 Astra), so
+            // the generic Flex pass-through does not apply.
+            service_tier.filter(|service_tier| {
+                model_info
+                    .service_tiers
+                    .iter()
+                    .any(|tier| tier.id == *service_tier)
+            })
         } else {
             model_info.service_tier_for_request(service_tier)
         };

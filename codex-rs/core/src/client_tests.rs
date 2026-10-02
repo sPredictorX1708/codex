@@ -1598,6 +1598,54 @@ async fn response_stream_records_last_model_feedback_ids() {
     );
 }
 
+#[test]
+fn bedrock_requests_carry_only_service_tiers_the_catalog_lists() -> anyhow::Result<()> {
+    let mut client = test_model_client(SessionSource::Cli);
+    Arc::get_mut(&mut client.state)
+        .expect("test client should have unique session state")
+        .provider = create_model_provider(
+        ModelProviderInfo::create_amazon_bedrock_provider(/*aws*/ None),
+        /*auth_manager*/ None,
+    );
+    let mut model = test_model_info();
+    model.service_tiers = vec![codex_protocol::openai_models::ModelServiceTier {
+        id: "ultrafast".to_string(),
+        name: "Ultrafast".to_string(),
+        description: "ultrafast".to_string(),
+    }];
+    let responses_metadata = test_responses_metadata_for_client(
+        &client,
+        /*turn_id*/ None,
+        format!("{}:0", client.state.thread_id),
+        /*parent_thread_id*/ None,
+        TestCodexResponsesRequestKind::Turn,
+    );
+    let request_tier = |service_tier: &str| {
+        client
+            .build_responses_request(
+                &Prompt::default(),
+                &model,
+                /*effort*/ None,
+                codex_protocol::config_types::ReasoningSummary::None,
+                Some(service_tier.to_string()),
+                &responses_metadata,
+                /*include_internal*/ true,
+            )
+            .map(|request| request.service_tier)
+    };
+
+    assert_eq!(
+        (
+            request_tier("ultrafast")?,
+            request_tier("priority")?,
+            request_tier("flex")?,
+            request_tier("default")?,
+        ),
+        (Some("ultrafast".to_string()), None, None, None)
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn bedrock_unauthorized_error_uses_provider_mapping() {
     let provider = create_model_provider(

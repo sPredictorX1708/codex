@@ -133,3 +133,26 @@ fn runtime_catalog_disables_web_search_without_overriding_review_models() {
         ]
     );
 }
+
+#[test]
+fn runtime_catalog_offers_ultrafast_only_for_gpt_6_astra_routes() {
+    let catalog = static_runtime_model_catalog();
+
+    assert_eq!(
+        catalog
+            .models
+            .iter()
+            .filter(|model| !model.service_tiers.is_empty())
+            .map(|model| (
+                model.slug.as_str(),
+                model
+                    .service_tier_for_request(Some("ultrafast".to_string()))
+                    .is_some(),
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("global.openai.gpt-6-astra", true),
+            ("us.openai.gpt-6-astra", true),
+        ]
+    );
+}

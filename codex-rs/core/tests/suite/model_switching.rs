@@ -743,6 +743,63 @@ async fn unsupported_configured_service_tier_warns_at_session_start() -> Result<
     Ok(())
 }
 
+#[test_case("ultrafast", Some("ultrafast"), false; "ultrafast_is_sent")]
+#[test_case("priority", None, true; "priority_is_omitted_with_warning")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn astra_provider_sends_only_service_tiers_bedrock_supports(
+    configured_service_tier: &'static str,
+    expected_service_tier: Option<&str>,
+    expect_warning: bool,
+) -> Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = start_mock_server().await;
+    let resp_mock = mount_sse_once(&server, sse_completed("resp-1")).await;
+    let model = "openai.gpt-6-astra";
+    let mut builder = test_codex().with_config(move |config| {
+        config.model_provider.name =
+            codex_model_provider_info::ModelProviderInfo::create_astra_provider().name;
+        config.model = Some(model.to_string());
+        config.service_tier = Some(configured_service_tier.to_string());
+    });
+    let test = builder.build(&server).await?;
+
+    test.codex
+        .start_or_steer_turn(read_only_user_turn(
+            &test,
+            vec![UserInput::Text {
+                text: "service tier turn".into(),
+                text_elements: Vec::new(),
+            }],
+            model.to_string(),
+        ))
+        .await?;
+    let mut warnings = Vec::new();
+    wait_for_event(&test.codex, |event| match event {
+        EventMsg::Warning(warning) => {
+            warnings.push(warning.message.clone());
+            false
+        }
+        EventMsg::TurnComplete(_) => true,
+        _ => false,
+    })
+    .await;
+
+    let body = resp_mock.single_request().body_json();
+    assert_eq!(
+        (
+            body["model"].as_str(),
+            body.get("service_tier").and_then(|tier| tier.as_str()),
+            warnings
+                .iter()
+                .any(|message| message.contains("will be omitted from requests")),
+        ),
+        (Some(model), expected_service_tier, expect_warning)
+    );
+
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn default_service_tier_override_is_omitted_from_http_turn() -> Result<()> {
     skip_if_no_network!(Ok(()));

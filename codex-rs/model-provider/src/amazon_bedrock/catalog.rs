@@ -8,6 +8,7 @@ use codex_model_provider_info::AMAZON_BEDROCK_GPT_6_SOL_MODEL_ID;
 use codex_models_manager::bundled_models_response;
 use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::openai_models::ModelInfo;
+use codex_protocol::openai_models::ModelServiceTier;
 use codex_protocol::openai_models::ModelVisibility;
 use codex_protocol::openai_models::ModelsResponse;
 use codex_protocol::openai_models::ReasoningEffort;
@@ -22,6 +23,8 @@ const GPT_6_SOL_OPENAI_MODEL_ID: &str = "gpt-6-sol";
 const GPT_6_LUNA_OPENAI_MODEL_ID: &str = "gpt-6-luna";
 const GPT_6_ASTRA_OPENAI_MODEL_ID: &str = "gpt-6-astra";
 const GPT_5_5_OPENAI_MODEL_ID: &str = "gpt-5.5";
+/// Bedrock's speed tier for GPT-6 Astra, sent as `"service_tier": "ultrafast"`.
+const ULTRAFAST_SERVICE_TIER_ID: &str = "ultrafast";
 /// Code-mode batching rules in the bundled GPT-6 instruction templates. They name the
 /// `functions.exec` tool, which Bedrock models do not get because `bedrock_model` clears
 /// `tool_mode`.
@@ -108,10 +111,14 @@ pub(crate) fn astra_model_catalog() -> ModelsResponse {
 
 pub(crate) fn normalize_bedrock_catalog(mut catalog: ModelsResponse) -> ModelsResponse {
     for model in &mut catalog.models {
-        // Amazon Bedrock currently only supports the implicit "default" tier for GPT models.
+        // Amazon Bedrock offers no Priority or Flex tier for GPT models; GPT-6 Astra alone adds
+        // the opt-in Ultrafast tier.
         model.additional_speed_tiers.clear();
         model.service_tiers.clear();
         model.default_service_tier = None;
+        if is_gpt_6_astra(&model.slug) {
+            model.service_tiers.push(ultrafast_service_tier());
+        }
         // Bedrock rejects the `search_content_types` field used by multimodal search.
         model.web_search_tool_type = WebSearchToolType::Text;
         // Bedrock does not support the response items used by multi-agent V2.
@@ -121,6 +128,25 @@ pub(crate) fn normalize_bedrock_catalog(mut catalog: ModelsResponse) -> ModelsRe
         model.default_reasoning_summary = ReasoningSummary::None;
     }
     catalog
+}
+
+/// Matches GPT-6 Astra on Mantle (`openai.gpt-6-astra`) and on its `us.` and `global.`
+/// cross-Region inference profiles.
+fn is_gpt_6_astra(slug: &str) -> bool {
+    let slug = slug
+        .strip_prefix("us.")
+        .or_else(|| slug.strip_prefix("global."))
+        .unwrap_or(slug);
+    slug == AMAZON_BEDROCK_GPT_6_ASTRA_MODEL_ID
+}
+
+fn ultrafast_service_tier() -> ModelServiceTier {
+    ModelServiceTier {
+        id: ULTRAFAST_SERVICE_TIER_ID.to_string(),
+        name: "Ultrafast".to_string(),
+        description: "Up to 6x faster at 6x the price; Mantle us-east-1 or cross-Region only"
+            .to_string(),
+    }
 }
 
 fn gpt_5_bedrock_model(
@@ -359,6 +385,9 @@ mod tests {
                 .retain(|level| level.effort != ReasoningEffort::Ultra);
             expected.additional_speed_tiers.clear();
             expected.service_tiers.clear();
+            if slug == AMAZON_BEDROCK_GPT_6_ASTRA_MODEL_ID {
+                expected.service_tiers.push(ultrafast_service_tier());
+            }
             expected.default_service_tier = None;
             expected.web_search_tool_type = WebSearchToolType::Text;
             expected.multi_agent_version = Some(MultiAgentVersion::V1);
@@ -420,7 +449,11 @@ mod tests {
     fn gpt_5_bedrock_models_only_allow_default_service_tier() {
         let catalog = static_model_catalog();
 
-        for model in catalog.models {
+        for model in catalog
+            .models
+            .into_iter()
+            .filter(|model| model.slug != AMAZON_BEDROCK_GPT_6_ASTRA_MODEL_ID)
+        {
             assert_eq!(model.additional_speed_tiers, Vec::<String>::new());
             assert_eq!(model.service_tiers, Vec::new());
             assert_eq!(model.default_service_tier, None);
@@ -432,6 +465,55 @@ mod tests {
                 model
                     .service_tier_for_request(Some(SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string())),
                 None
+            );
+        }
+    }
+
+    #[test]
+    fn gpt_6_astra_bedrock_models_offer_only_the_ultrafast_service_tier() {
+        let configured_astra = ["", "us.", "global."].map(|prefix| {
+            let mut model = bundled_openai_model(GPT_6_ASTRA_OPENAI_MODEL_ID);
+            model.slug = format!("{prefix}{AMAZON_BEDROCK_GPT_6_ASTRA_MODEL_ID}");
+            model
+        });
+        let models = static_model_catalog()
+            .models
+            .into_iter()
+            .chain(astra_model_catalog().models)
+            .chain(
+                normalize_bedrock_catalog(ModelsResponse {
+                    models: configured_astra.to_vec(),
+                })
+                .models,
+            )
+            .filter(|model| model.slug.ends_with(AMAZON_BEDROCK_GPT_6_ASTRA_MODEL_ID))
+            .collect::<Vec<_>>();
+
+        assert_eq!(models.len(), 5);
+        for model in models {
+            assert_eq!(
+                (
+                    model
+                        .service_tiers
+                        .iter()
+                        .map(|tier| tier.id.as_str())
+                        .collect::<Vec<_>>(),
+                    model.default_service_tier.as_deref(),
+                    model.additional_speed_tiers.clone(),
+                    model.service_tier_for_request(Some("ultrafast".to_string())),
+                    model.service_tier_for_request(Some("priority".to_string())),
+                    model.service_tier_for_request(Some(
+                        SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string()
+                    )),
+                ),
+                (
+                    vec!["ultrafast"],
+                    None,
+                    Vec::<String>::new(),
+                    Some("ultrafast".to_string()),
+                    None,
+                    None,
+                )
             );
         }
     }
