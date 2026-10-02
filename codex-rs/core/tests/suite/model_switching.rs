@@ -745,6 +745,7 @@ async fn unsupported_configured_service_tier_warns_at_session_start() -> Result<
 
 #[test_case("ultrafast", Some("ultrafast"), false; "ultrafast_is_sent")]
 #[test_case("priority", None, true; "priority_is_omitted_with_warning")]
+#[test_case("flex", None, true; "flex_is_omitted_with_warning")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn astra_provider_sends_only_service_tiers_bedrock_supports(
     configured_service_tier: &'static str,

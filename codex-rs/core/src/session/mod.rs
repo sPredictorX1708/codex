@@ -813,6 +813,7 @@ impl Session {
         let initial_service_tier_warning = unsupported_service_tier_warning(
             config.service_tier.as_deref(),
             fast_mode_enabled,
+            config.model_provider.is_amazon_bedrock() || config.model_provider.is_astra(),
             &model_info,
         );
         let service_tier =
@@ -1094,9 +1095,16 @@ pub(crate) fn get_service_tier(
 fn unsupported_service_tier_warning(
     configured_service_tier: Option<&str>,
     fast_mode_enabled: bool,
+    catalog_tiers_only: bool,
     model_info: &ModelInfo,
 ) -> Option<String> {
     let service_tier = configured_service_tier.filter(|service_tier| {
+        if catalog_tiers_only && *service_tier == ServiceTier::Flex.request_value() {
+            return !model_info
+                .service_tiers
+                .iter()
+                .any(|tier| tier.id == *service_tier);
+        }
         fast_mode_enabled
             && *service_tier != SERVICE_TIER_DEFAULT_REQUEST_VALUE
             && !model_info.supports_service_tier(service_tier)
