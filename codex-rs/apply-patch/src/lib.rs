@@ -444,8 +444,11 @@ async fn apply_hunks_with_options(
             Ok(delta)
         }
         Err(error) => {
-            let msg = error.to_string();
+            let msg = render_error_chain(&error);
             writeln!(stderr, "{msg}").map_err(|error| {
+                ApplyPatchFailure::new(ApplyPatchError::from(error), delta.clone())
+            })?;
+            print_partial_application(&delta, stderr).map_err(|error| {
                 ApplyPatchFailure::new(ApplyPatchError::from(error), delta.clone())
             })?;
             let error = if let Some(io) = error.downcast_ref::<std::io::Error>() {
@@ -459,6 +462,48 @@ async fn apply_hunks_with_options(
             Err(ApplyPatchFailure::new(error, delta))
         }
     }
+}
+
+/// Renders an error with its causes, so a context such as "Failed to write
+/// file <path>" keeps the underlying I/O error (for example the fs sandbox
+/// helper's stderr). A cause whose text the message already ends with is
+/// skipped, because some errors print their source in their own message.
+fn render_error_chain(error: &anyhow::Error) -> String {
+    let mut msg = error.to_string();
+    for cause in error.chain().skip(1) {
+        let cause = cause.to_string();
+        if !cause.is_empty() && !msg.ends_with(&cause) {
+            msg.push_str(": ");
+            msg.push_str(&cause);
+        }
+    }
+    msg
+}
+
+/// Lists the changes a failed patch committed before it stopped, so the
+/// caller knows which files no longer need to be sent again.
+fn print_partial_application(
+    delta: &AppliedPatchDelta,
+    out: &mut impl std::io::Write,
+) -> std::io::Result<()> {
+    if delta.changes.is_empty() {
+        return Ok(());
+    }
+    writeln!(
+        out,
+        "The patch was partly applied. These changes were made before the failure and are already on disk:"
+    )?;
+    for change in &delta.changes {
+        let (status, path) = match &change.change {
+            AppliedPatchFileChange::Add { .. } => ('A', &change.path),
+            AppliedPatchFileChange::Delete { .. } => ('D', &change.path),
+            AppliedPatchFileChange::Update { move_path, .. } => {
+                ('M', move_path.as_ref().unwrap_or(&change.path))
+            }
+        };
+        writeln!(out, "{status} {}", path.inferred_native_path_string())?;
+    }
+    Ok(())
 }
 
 /// Applies each parsed patch hunk to the filesystem.
@@ -1446,5 +1491,157 @@ mod tests {
         .unwrap();
 
         assert!(!delta.is_exact());
+    }
+
+    /// Local filesystem whose `write_file` fails for one path the way the fs
+    /// sandbox helper does.
+    struct FailingWriteFileSystem {
+        failing_path: PathUri,
+        message: &'static str,
+    }
+
+    impl ExecutorFileSystem for FailingWriteFileSystem {
+        fn canonicalize<'a>(
+            &'a self,
+            path: &'a PathUri,
+            sandbox: Option<&'a FileSystemSandboxContext>,
+        ) -> codex_exec_server::ExecutorFileSystemFuture<'a, PathUri> {
+            LOCAL_FS.canonicalize(path, sandbox)
+        }
+
+        fn read_file<'a>(
+            &'a self,
+            path: &'a PathUri,
+            options: ReadFileOptions,
+            sandbox: Option<&'a FileSystemSandboxContext>,
+        ) -> codex_exec_server::ExecutorFileSystemFuture<'a, Vec<u8>> {
+            LOCAL_FS.read_file(path, options, sandbox)
+        }
+
+        fn read_file_stream<'a>(
+            &'a self,
+            path: &'a PathUri,
+            sandbox: Option<&'a FileSystemSandboxContext>,
+        ) -> codex_exec_server::ExecutorFileSystemFuture<'a, codex_exec_server::FileSystemReadStream>
+        {
+            LOCAL_FS.read_file_stream(path, sandbox)
+        }
+
+        fn write_file<'a>(
+            &'a self,
+            path: &'a PathUri,
+            contents: Vec<u8>,
+            options: WriteFileOptions,
+            sandbox: Option<&'a FileSystemSandboxContext>,
+        ) -> codex_exec_server::ExecutorFileSystemFuture<'a, ()> {
+            if path == &self.failing_path {
+                let message = self.message;
+                return Box::pin(async move { Err(io::Error::other(message)) });
+            }
+            LOCAL_FS.write_file(path, contents, options, sandbox)
+        }
+
+        fn create_directory<'a>(
+            &'a self,
+            path: &'a PathUri,
+            options: CreateDirectoryOptions,
+            sandbox: Option<&'a FileSystemSandboxContext>,
+        ) -> codex_exec_server::ExecutorFileSystemFuture<'a, ()> {
+            LOCAL_FS.create_directory(path, options, sandbox)
+        }
+
+        fn get_metadata<'a>(
+            &'a self,
+            path: &'a PathUri,
+            options: GetMetadataOptions,
+            sandbox: Option<&'a FileSystemSandboxContext>,
+        ) -> codex_exec_server::ExecutorFileSystemFuture<'a, codex_exec_server::FileMetadata>
+        {
+            LOCAL_FS.get_metadata(path, options, sandbox)
+        }
+
+        fn read_directory<'a>(
+            &'a self,
+            path: &'a PathUri,
+            sandbox: Option<&'a FileSystemSandboxContext>,
+        ) -> codex_exec_server::ExecutorFileSystemFuture<
+            'a,
+            Vec<codex_exec_server::ReadDirectoryEntry>,
+        > {
+            LOCAL_FS.read_directory(path, sandbox)
+        }
+
+        fn walk<'a>(
+            &'a self,
+            path: &'a PathUri,
+            options: codex_exec_server::WalkOptions,
+            sandbox: Option<&'a FileSystemSandboxContext>,
+        ) -> codex_exec_server::ExecutorFileSystemFuture<'a, codex_exec_server::WalkOutcome>
+        {
+            LOCAL_FS.walk(path, options, sandbox)
+        }
+
+        fn remove<'a>(
+            &'a self,
+            path: &'a PathUri,
+            options: RemoveOptions,
+            sandbox: Option<&'a FileSystemSandboxContext>,
+        ) -> codex_exec_server::ExecutorFileSystemFuture<'a, ()> {
+            LOCAL_FS.remove(path, options, sandbox)
+        }
+
+        fn copy<'a>(
+            &'a self,
+            source_path: &'a PathUri,
+            destination_path: &'a PathUri,
+            options: codex_exec_server::CopyOptions,
+            sandbox: Option<&'a FileSystemSandboxContext>,
+        ) -> codex_exec_server::ExecutorFileSystemFuture<'a, ()> {
+            LOCAL_FS.copy(source_path, destination_path, options, sandbox)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_failed_write_reports_cause_and_files_already_written() {
+        let dir = tempdir().unwrap();
+        let first = dir.path().join("first.txt");
+        let second = dir.path().join("second.txt");
+        fs::write(&first, "first old\n").unwrap();
+        fs::write(&second, "second old\n").unwrap();
+        let fs_double = FailingWriteFileSystem {
+            failing_path: PathUri::from_host_native_path(&second).expect("absolute test path"),
+            message: "fs sandbox helper failed with status exit status: 1: bwrap: Can't bind mount / on /: Operation not permitted",
+        };
+        let patch = wrap_patch(
+            "*** Update File: first.txt\n@@\n-first old\n+first new\n*** Update File: second.txt\n@@\n-second old\n+second new",
+        );
+
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let failure = apply_patch(
+            &patch,
+            &PathUri::from_host_native_path(dir.path()).expect("absolute test path"),
+            &mut stdout,
+            &mut stderr,
+            &fs_double,
+            /*sandbox*/ None,
+        )
+        .await
+        .expect_err("the second write should fail");
+
+        assert_eq!(
+            String::from_utf8(stderr).unwrap(),
+            format!(
+                "Failed to write file {}: fs sandbox helper failed with status exit status: 1: bwrap: Can't bind mount / on /: Operation not permitted\n\
+                 The patch was partly applied. These changes were made before the failure and are already on disk:\n\
+                 M {}\n",
+                second.display(),
+                first.display(),
+            )
+        );
+        assert_eq!(String::from_utf8(stdout).unwrap(), "");
+        assert_eq!(failure.delta().changes().len(), 1);
+        assert_eq!(fs::read_to_string(&first).unwrap(), "first new\n");
+        assert_eq!(fs::read_to_string(&second).unwrap(), "second old\n");
     }
 }

@@ -285,7 +285,7 @@ fn test_apply_patch_cli_rejects_missing_file_delete() -> anyhow::Result<()> {
         .assert()
         .failure()
         .stderr(format!(
-            "Failed to delete file {}\n",
+            "Failed to delete file {}: No such file or directory (os error 2)\n",
             missing_path.display()
         ));
 
@@ -375,7 +375,7 @@ fn test_apply_patch_cli_delete_directory_fails() -> anyhow::Result<()> {
         .assert()
         .failure()
         .stderr(format!(
-            "Failed to delete file {}\n",
+            "Failed to delete file {}: path is a directory\n",
             expected_dir.display()
         ));
 
@@ -419,6 +419,7 @@ fn test_apply_patch_cli_updates_file_appends_trailing_newline() -> anyhow::Resul
 fn test_apply_patch_cli_failure_after_partial_success_leaves_changes() -> anyhow::Result<()> {
     let tmp = tempdir()?;
     let new_file = tmp.path().join("created.txt");
+    let expected_new_file = resolved_under(tmp.path(), "created.txt")?;
     let missing_file = resolved_under(tmp.path(), "missing.txt")?;
 
     apply_patch_command(tmp.path())?
@@ -427,8 +428,11 @@ fn test_apply_patch_cli_failure_after_partial_success_leaves_changes() -> anyhow
         .failure()
         .stdout("")
         .stderr(format!(
-            "Failed to read file to update {}: No such file or directory (os error 2)\n",
-            missing_file.display()
+            "Failed to read file to update {}: No such file or directory (os error 2)\n\
+             The patch was partly applied. These changes were made before the failure and are already on disk:\n\
+             A {}\n",
+            missing_file.display(),
+            expected_new_file.display()
         ));
 
     assert_eq!(fs::read_to_string(&new_file)?, "hello\n");
