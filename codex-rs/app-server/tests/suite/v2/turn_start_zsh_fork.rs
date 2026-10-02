@@ -481,7 +481,7 @@ async fn turn_start_shell_zsh_fork_subcommand_decline_marks_parent_declined_v2()
     };
     if !supports_exec_wrapper_intercept(&zsh_path) {
         eprintln!(
-            "skipping zsh fork subcommand decline test: zsh does not support EXEC_WRAPPER intercepts ({})",
+            "skipping zsh fork subcommand decline test: zsh cannot run or does not support EXEC_WRAPPER intercepts ({})",
             zsh_path.display()
         );
         return Ok(());
@@ -840,13 +840,16 @@ fn find_test_zsh_path() -> Result<Option<std::path::PathBuf>> {
 }
 
 fn supports_exec_wrapper_intercept(zsh_path: &Path) -> bool {
-    let status = std::process::Command::new(zsh_path)
-        .arg("-fc")
-        .arg("/usr/bin/true")
-        .env("EXEC_WRAPPER", "/usr/bin/false")
-        .status();
-    match status {
-        Ok(status) => !status.success(),
-        Err(_) => false,
-    }
+    let runs_true = |exec_wrapper: Option<&str>| {
+        let mut command = std::process::Command::new(zsh_path);
+        command.arg("-fc").arg("/usr/bin/true");
+        match exec_wrapper {
+            Some(exec_wrapper) => command.env("EXEC_WRAPPER", exec_wrapper),
+            None => command.env_remove("EXEC_WRAPPER"),
+        };
+        command.status().is_ok_and(|status| status.success())
+    };
+    // A zsh that cannot start at all (for example a loader error) also exits
+    // nonzero under the wrapper, so require a clean run without it first.
+    runs_true(/*exec_wrapper*/ None) && !runs_true(Some("/usr/bin/false"))
 }
