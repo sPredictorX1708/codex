@@ -206,16 +206,25 @@ fn install_network_seccomp_filter_on_current_thread(
             deny_syscall(&mut rules, libc::SYS_bind);
             deny_syscall(&mut rules, libc::SYS_listen);
             deny_syscall(&mut rules, libc::SYS_getpeername);
-            deny_syscall(&mut rules, libc::SYS_getsockname);
-            deny_syscall(&mut rules, libc::SYS_shutdown);
-            deny_syscall(&mut rules, libc::SYS_sendto);
+            // NOTE: getsockname, getsockopt, shutdown, recvfrom and sendto
+            // without a destination address only act on sockets that already
+            // exist, and new sockets are AF_UNIX-only with connect, bind,
+            // listen and accept denied. libuv uses socketpairs as child
+            // stdio: `uv_guess_handle` calls getsockname and
+            // getsockopt(SO_TYPE) on each stdio fd (on failure Node discards
+            // the child's output), and the parent ends a child's stdin with
+            // shutdown(SHUT_WR). Allowing recvfrom lets tools like
+            // `cargo clippy` run their socketpair + child processes, and
+            // glibc `send()` is sendto with a NULL address.
+            let addressed_sendto = SeccompRule::new(vec![SeccompCondition::new(
+                4, // fifth argument (dest_addr)
+                SeccompCmpArgLen::Qword,
+                SeccompCmpOp::Ne,
+                0,
+            )?])?;
+            rules.insert(libc::SYS_sendto, vec![addressed_sendto]);
             deny_syscall(&mut rules, libc::SYS_sendmmsg);
-            // NOTE: allowing recvfrom allows some tools like: `cargo clippy`
-            // to run with their socketpair + child processes for sub-proc
-            // management.
-            // deny_syscall(&mut rules, libc::SYS_recvfrom);
             deny_syscall(&mut rules, libc::SYS_recvmmsg);
-            deny_syscall(&mut rules, libc::SYS_getsockopt);
             deny_syscall(&mut rules, libc::SYS_setsockopt);
 
             // For `socket` we allow AF_UNIX (arg0 == AF_UNIX) and deny

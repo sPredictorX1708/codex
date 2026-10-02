@@ -1565,5 +1565,95 @@ async fn sandbox_blocks_dev_tcp_redirection() {
     assert_network_blocked(&["bash", "-c", "echo hi > /dev/tcp/127.0.0.1/80"]).await;
 }
 
+#[tokio::test]
+async fn sandbox_allows_existing_socketpair_calls_but_blocks_new_endpoints() {
+    if should_skip_bwrap_tests().await {
+        eprintln!("skipping bwrap test: bwrap sandbox prerequisites are unavailable");
+        return;
+    }
+
+    let output = run_cmd_output(
+        &[
+            "python3",
+            "-c",
+            r#"import errno, socket
+def probe(call):
+    try:
+        call()
+        return "ok"
+    except OSError as err:
+        return errno.errorcode.get(err.errno, str(err.errno))
+left, right = socket.socketpair()
+right.settimeout(2)
+datagram = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+results = [
+    probe(left.getsockname),
+    probe(lambda: left.getsockopt(socket.SOL_SOCKET, socket.SO_TYPE)),
+    probe(lambda: left.send(b"x")),
+    probe(lambda: left.shutdown(socket.SHUT_WR)),
+    repr(right.recv(1) + right.recv(1)),
+    probe(lambda: socket.socket(socket.AF_INET)),
+    probe(lambda: socket.socket(socket.AF_UNIX).bind("\0codex-sandbox-test")),
+    probe(lambda: socket.socket(socket.AF_UNIX).connect("\0codex-sandbox-test")),
+    probe(lambda: socket.socket(socket.AF_UNIX).listen()),
+    probe(lambda: datagram.sendto(b"x", "\0codex-sandbox-test")),
+]
+print(" ".join(results))"#,
+        ],
+        &[],
+        LONG_TIMEOUT_MS,
+    )
+    .await;
+
+    assert_eq!(
+        (output.exit_code, output.stdout.text.as_str()),
+        (0, "ok ok ok ok b'x' EPERM EPERM EPERM EPERM EPERM\n"),
+        "stderr: {}",
+        output.stderr.text
+    );
+}
+
+#[tokio::test]
+async fn sandbox_lets_node_children_use_piped_stdio() {
+    if should_skip_bwrap_tests().await {
+        eprintln!("skipping bwrap test: bwrap sandbox prerequisites are unavailable");
+        return;
+    }
+    if !std::process::Command::new("node")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success())
+    {
+        eprintln!("skipping node child stdio test: node is unavailable");
+        return;
+    }
+
+    // libuv gives the child socketpair stdio, checks each fd with getsockname
+    // and getsockopt, and ends the child's stdin with shutdown(SHUT_WR).
+    let output = run_cmd_output(
+        &[
+            "node",
+            "-e",
+            r#"const { spawnSync } = require("child_process");
+const child = spawnSync(process.execPath, ["-e", "process.stdin.pipe(process.stdout)"], {
+  input: "piped",
+  encoding: "utf8",
+  timeout: 4000,
+});
+console.log(JSON.stringify([child.status, child.error?.code ?? null, child.stdout]));"#,
+        ],
+        &[],
+        LONG_TIMEOUT_MS,
+    )
+    .await;
+
+    assert_eq!(
+        (output.exit_code, output.stdout.text.as_str()),
+        (0, "[0,null,\"piped\"]\n"),
+        "stderr: {}",
+        output.stderr.text
+    );
+}
+
 #[path = "daemon_sockets_tests.rs"]
 mod daemon_sockets_tests;
