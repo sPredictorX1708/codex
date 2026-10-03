@@ -2423,11 +2423,11 @@ requires_openai_auth = {requires_openai_auth}
                 false,
             ),
             (
-                "enabled for the default provider",
+                "enabled for the astra default provider",
                 enabled,
                 LoginStatus::NotAuthenticated,
                 AppServerTarget::Embedded,
-                true,
+                false,
             ),
             (
                 "explicit provider",

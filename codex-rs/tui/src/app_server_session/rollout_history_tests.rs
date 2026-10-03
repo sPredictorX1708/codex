@@ -330,6 +330,17 @@ async fn cached_legacy_resume_revalidates_history_across_migration_settings() ->
                 ResumeModelSettings::RestoreFromThread,
             ));
             drop(maintenance_guard);
+            // A child that a concurrent test forks can hold the lock file's
+            // descriptor until it execs, so wait until the lock is free again.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while codex_rollout::try_acquire_rollout_maintenance_lock(codex_home.path())?.is_none()
+            {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "rollout maintenance lock stayed busy"
+                );
+                std::thread::yield_now();
+            }
             // This current-thread test polls resume before yielding to the startup worker.
             // Resume must acquire its guard before waiting for metadata revalidation.
             assert!(resume.as_mut().now_or_never().is_none());

@@ -16,10 +16,14 @@ async fn cyber_refusal_reads_eligibility_without_changing_the_model() -> Result<
     let (mut app, mut events, _ops) = make_test_app_with_channels().await;
     let backend = wiremock::MockServer::start().await;
     app.config.chatgpt_base_url = backend.uri();
-    // Embedded account discovery reloads the bootstrap URL from disk.
+    // Embedded account discovery reloads the bootstrap URL and the provider
+    // from disk; the fork's default provider (astra) has no ChatGPT account.
     std::fs::write(
         app.config.codex_home.join("config.toml"),
-        format!("chatgpt_base_url = {:?}\n", backend.uri()),
+        format!(
+            "model_provider = \"openai\"\nchatgpt_base_url = {:?}\n",
+            backend.uri()
+        ),
     )?;
     app_test_support::mount_workspace_routing(&backend).await;
     app.config.cli_auth_credentials_store_mode = AuthCredentialsStoreMode::File;

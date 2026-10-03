@@ -104,7 +104,7 @@ async fn recovery_refresh_stops_after_submission_or_startup_completion() {
     .await;
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn recovery_keeps_buffered_input_on_exit_or_queued_submission() {
     for queue in [false, true] {
         scope(async {

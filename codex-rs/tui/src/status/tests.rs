@@ -133,9 +133,19 @@ fn app_server_workspace_write_profile(network_enabled: bool) -> PermissionProfil
     }
 }
 
+/// The fork defaults to the astra provider; these tests cover the OpenAI
+/// provider's status card (ChatGPT account, rate limits and credits).
+fn openai_provider_override() -> Vec<(String, toml::Value)> {
+    vec![(
+        "model_provider".to_string(),
+        toml::Value::String("openai".to_string()),
+    )]
+}
+
 async fn test_config(temp_home: &TempDir) -> Config {
     let mut config = ConfigBuilder::default()
         .codex_home(temp_home.path().to_path_buf())
+        .cli_overrides(openai_provider_override())
         .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
         .build()
         .await
@@ -403,7 +413,7 @@ async fn status_snapshot_shows_chatgpt_plan_without_email() {
     let mut app_server = crate::start_app_server_for_picker(
         &config,
         &crate::AppServerTarget::Embedded,
-        Vec::new(),
+        openai_provider_override(),
         loader_overrides,
         /*state_db*/ None,
         Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),

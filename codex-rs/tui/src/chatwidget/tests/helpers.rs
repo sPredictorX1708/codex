@@ -9,9 +9,14 @@ pub(super) async fn test_config() -> (tempfile::TempDir, Config) {
         .prefix("chatwidget-tests-")
         .tempdir()
         .expect("tempdir");
+    // The fork defaults to the astra provider; these tests cover the OpenAI
+    // provider's UI (ChatGPT rate limits, the bundled model catalog).
     let mut config = Config::load_default_with_cli_overrides_for_codex_home(
         codex_home.path().to_path_buf(),
-        Vec::new(),
+        vec![(
+            "model_provider".to_string(),
+            TomlValue::String("openai".to_string()),
+        )],
     )
     .await
     .expect("config");

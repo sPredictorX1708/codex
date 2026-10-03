@@ -46,7 +46,7 @@ async fn cli_fork_omits_implicit_model_and_effort() -> Result<()> {
     let home = tempdir()?;
     std::fs::write(
         home.path().join("config.toml"),
-        "model = \"gpt-5.5\"\nmodel_reasoning_effort = \"low\"\nfeatures.fast_mode = true\n",
+        "model_provider = \"openai\"\nmodel = \"gpt-5.5\"\nmodel_reasoning_effort = \"low\"\nfeatures.fast_mode = true\n",
     )?;
     let config = ConfigBuilder::default()
         .codex_home(home.path().to_path_buf())
@@ -99,7 +99,7 @@ async fn cli_fork_omits_implicit_model_and_effort() -> Result<()> {
     );
     std::fs::write(
         home.path().join("config.toml"),
-        "model = \"server-model\"\nmodel_reasoning_effort = \"high\"\n",
+        "model_provider = \"openai\"\nmodel = \"server-model\"\nmodel_reasoning_effort = \"high\"\n",
     )?;
     let mut tui = crate::tui::test_support::make_test_tui()?;
     let mut run = Box::pin(run_startup_for_test(
@@ -303,7 +303,7 @@ async fn fresh_startup_reads_destination_and_cleared_model_uses_catalog() -> Res
         let launch_cwd = tempdir()?;
         std::fs::write(
             client_home.path().join("config.toml"),
-            "model = \"stale-client-model\"\nmodel_reasoning_effort = \"low\"\n",
+            "model_provider = \"openai\"\nmodel = \"stale-client-model\"\nmodel_reasoning_effort = \"low\"\n",
         )?;
         std::fs::write(
             server_home.path().join("config.toml"),

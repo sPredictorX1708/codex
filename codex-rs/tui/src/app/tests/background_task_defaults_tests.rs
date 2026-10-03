@@ -231,6 +231,8 @@ async fn command_center_new_reads_server_defaults_for_actual_destination() -> Re
                 },
                 if mode == "local-default-provider" {
                     "model_provider = \"ollama\"\n"
+                } else if mode == "remote-null-fast" {
+                    "model_provider = \"openai\"\n"
                 } else {
                     ""
                 }
@@ -247,6 +249,8 @@ async fn command_center_new_reads_server_defaults_for_actual_destination() -> Re
                 },
                 if mode == "local" || mode == "local-cli-provider" || mode == "local-cli-model" {
                     "model_provider = \"ollama\"\n"
+                } else if mode == "remote-null-fast" {
+                    "model_provider = \"openai\"\n"
                 } else {
                     ""
                 }
@@ -389,6 +393,8 @@ async fn command_center_new_reads_server_defaults_for_actual_destination() -> Re
                     serde_json::Value::Null
                 } else if mode == "local" && !explicit_cwd {
                     serde_json::json!("ollama")
+                } else if mode == "local-cli-model" {
+                    serde_json::json!(codex_model_provider_info::ASTRA_PROVIDER_ID)
                 } else {
                     serde_json::json!("openai")
                 },
@@ -820,7 +826,7 @@ async fn command_center_new_restores_blank_drafts_and_builtin_permissions() -> R
         .await?;
     assert_eq!(app.chat_widget.thread_id(), Some(startup));
     app.chat_widget.set_model("gpt-local-choice");
-    app.start_fresh_session_with_summary_hint(
+    app.start_fresh_session(
         &mut tui,
         &mut server,
         /*session_start_source*/ None,
