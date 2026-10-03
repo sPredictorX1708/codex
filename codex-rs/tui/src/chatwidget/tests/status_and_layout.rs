@@ -3961,6 +3961,62 @@ async fn status_line_fast_mode_updates_visibility_on_model_change() {
     assert_eq!(status_line_text(&chat), Some("Fast on".to_string()));
 }
 
+fn set_astra_ultrafast_test_catalog(chat: &mut ChatWidget) {
+    set_fast_mode_test_catalog_for_models(chat, "openai.gpt-6-astra", "gpt-5.2");
+    for preset in &mut Arc::make_mut(&mut chat.model_catalog).models {
+        if preset.model == "openai.gpt-6-astra" {
+            preset.service_tiers = vec![codex_protocol::openai_models::ModelServiceTier {
+                id: "ultrafast".to_string(),
+                name: "Ultrafast".to_string(),
+                description: "Up to 6x faster at 6x the price".to_string(),
+            }];
+        }
+    }
+}
+
+#[tokio::test]
+async fn status_line_service_tier_renders_ultrafast_or_standard() {
+    let (mut chat, mut rx, _op_rx) = make_chatwidget_manual(Some("openai.gpt-6-astra")).await;
+    set_astra_ultrafast_test_catalog(&mut chat);
+    chat.thread_id = Some(ThreadId::new());
+    chat.local_settings.tui.status_line = Some(vec!["service-tier".to_string()]);
+
+    chat.refresh_status_line();
+    assert_eq!(status_line_text(&chat), Some("Standard".to_string()));
+    assert!(
+        drain_insert_history(&mut rx).is_empty(),
+        "service-tier should be accepted as a status line item"
+    );
+
+    chat.set_service_tier(Some("ultrafast".to_string()));
+    chat.refresh_status_line();
+    assert_eq!(status_line_text(&chat), Some("Ultrafast".to_string()));
+
+    chat.set_model("gpt-5.2");
+    chat.refresh_status_line();
+    assert_eq!(status_line_text(&chat), Some("Standard".to_string()));
+}
+
+#[tokio::test]
+async fn status_line_service_tier_shows_flex_only_where_requests_send_it() {
+    let (mut chat, _rx, _op_rx) = make_chatwidget_manual(Some("openai.gpt-6-astra")).await;
+    set_astra_ultrafast_test_catalog(&mut chat);
+    chat.local_settings.tui.status_line = Some(vec!["service-tier".to_string()]);
+    chat.set_service_tier(Some(ServiceTier::Flex.request_value().to_string()));
+    chat.config.model_provider =
+        codex_model_provider_info::ModelProviderInfo::create_openai_provider(
+            /*base_url*/ None,
+        );
+
+    chat.refresh_status_line();
+    assert_eq!(status_line_text(&chat), Some("Flex".to_string()));
+
+    chat.config.model_provider =
+        codex_model_provider_info::ModelProviderInfo::create_astra_provider();
+    chat.refresh_status_line();
+    assert_eq!(status_line_text(&chat), Some("Standard".to_string()));
+}
+
 #[tokio::test]
 async fn status_line_fast_mode_footer_snapshot() {
     use ratatui::Terminal;

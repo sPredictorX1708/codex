@@ -21,6 +21,41 @@ impl ChatWidget {
         self.effective_service_tier.as_deref()
     }
 
+    /// Name of the tier the next request is sent with: the catalog tier the model lists, Flex
+    /// where the provider passes it through, and Standard otherwise.
+    pub(super) fn service_tier_display_name(&self) -> String {
+        let Some(service_tier) = self.current_service_tier() else {
+            return "Standard".to_string();
+        };
+        let catalog_name = self
+            .model_catalog
+            .try_list_models()
+            .ok()
+            .and_then(|models| {
+                models
+                    .into_iter()
+                    .find(|preset| preset.model == self.current_model())
+            })
+            .and_then(|preset| {
+                preset
+                    .service_tiers
+                    .into_iter()
+                    .find(|tier| tier.id == service_tier)
+                    .map(|tier| tier.name)
+            });
+        if let Some(name) = catalog_name {
+            return name;
+        }
+        let provider = &self.config.model_provider;
+        if service_tier == ServiceTier::Flex.request_value()
+            && !provider.is_amazon_bedrock()
+            && !provider.is_astra()
+        {
+            return "Flex".to_string();
+        }
+        "Standard".to_string()
+    }
+
     pub(crate) fn configured_service_tier(&self) -> Option<String> {
         self.config.service_tier.clone()
     }
