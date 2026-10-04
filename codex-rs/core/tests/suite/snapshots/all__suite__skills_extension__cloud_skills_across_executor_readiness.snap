@@ -43,10 +43,10 @@ Settings:
 
 ## Window 2 (after request 1)
 Settings: relative to window 1
-  tools (9; hash=14c531c9ac7c8eb9):
+  tools (9; hash=a7ad2a7c22b53090):
     + function/exec_command: Runs a command in a PTY, returning output or a session ID for ongoing interaction.; args=[cmd, justification, login, max_output_tokens, prefix_rule, sandbox_permissions, shell, timeout_ms, tty, workdir, yield_time_ms]; hash=1865cd29e100dced
     + function/write_stdin: Writes characters to an existing unified exec session and returns recent output.; args=[chars, max_output_tokens, session_id, yield_time_ms]; hash=7fb62d8a3e2df4e2
-    + custom/apply_patch: The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the pat...; hash=44f6251f2554e9ef
+    + custom/apply_patch: The `apply_patch` tool can be used to edit files. This is a FREEFORM tool, so do not wrap the pat...; hash=37d3ce99be337d52
     + function/view_image: View a local image file from the filesystem when visual inspection is needed. Use this for images...; args=[detail, path]; hash=3b766d5bdec5d50e
 -- request 2 (turn) --
 00:message/developer[3]:

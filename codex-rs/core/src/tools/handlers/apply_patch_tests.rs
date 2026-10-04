@@ -409,3 +409,35 @@ fn write_permissions_for_windows_paths_uses_executor_uris() {
         )]),
     );
 }
+
+#[test]
+fn then_run_timeout_is_declared_by_a_leading_timeout_ms() {
+    assert_eq!(
+        split_then_run_timeout("python3 -m pytest -q"),
+        (THEN_RUN_TIMEOUT, "python3 -m pytest -q")
+    );
+    assert_eq!(
+        split_then_run_timeout("(timeout_ms: 300000) python3 -m pytest -q"),
+        (Duration::from_secs(300), "python3 -m pytest -q")
+    );
+    assert_eq!(
+        split_then_run_timeout("(timeout_ms:5000000) make test"),
+        (THEN_RUN_MAX_TIMEOUT, "make test")
+    );
+    assert_eq!(
+        split_then_run_timeout("(timeout_ms: 1000) make test"),
+        (THEN_RUN_TIMEOUT, "make test")
+    );
+    assert_eq!(
+        split_then_run_timeout("(timeout_ms: soon) make test"),
+        (THEN_RUN_TIMEOUT, "(timeout_ms: soon) make test")
+    );
+    assert_eq!(
+        split_then_run_timeout("(timeout_ms: 60000)"),
+        (THEN_RUN_TIMEOUT, "(timeout_ms: 60000)")
+    );
+    assert_eq!(
+        split_then_run_timeout("(cd tests && make)"),
+        (THEN_RUN_TIMEOUT, "(cd tests && make)")
+    );
+}

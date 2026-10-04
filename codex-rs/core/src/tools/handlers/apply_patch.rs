@@ -644,8 +644,36 @@ async fn execute_verified_patch(
     Ok(content)
 }
 
-/// Longest a patch's `*** Then Run:` command may run before it is killed.
+/// Longest a patch's `*** Then Run:` command may run before it is killed when
+/// its line declares no limit.
 const THEN_RUN_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Longest limit a `*** Then Run: (timeout_ms: N) <command>` line may declare.
+const THEN_RUN_MAX_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Splits an optional leading `(timeout_ms: N)` off a `*** Then Run:` command
+/// and returns the limit the command runs under with the command itself.
+///
+/// A declared limit is clamped to between [`THEN_RUN_TIMEOUT`] and
+/// [`THEN_RUN_MAX_TIMEOUT`]; a command without one, or with a malformed one,
+/// runs as written under [`THEN_RUN_TIMEOUT`].
+fn split_then_run_timeout(command: &str) -> (Duration, &str) {
+    let declared = command
+        .strip_prefix("(timeout_ms:")
+        .and_then(|rest| rest.split_once(')'))
+        .and_then(|(millis, rest)| {
+            let millis = millis.trim().parse::<u64>().ok()?;
+            let rest = rest.trim_start();
+            (!rest.is_empty()).then_some((millis, rest))
+        });
+    match declared {
+        Some((millis, rest)) => (
+            Duration::from_millis(millis).clamp(THEN_RUN_TIMEOUT, THEN_RUN_MAX_TIMEOUT),
+            rest,
+        ),
+        None => (THEN_RUN_TIMEOUT, command),
+    }
+}
 
 /// Runs a patch's `*** Then Run:` command after the patch applied and returns
 /// the section appended to the model's view of the `apply_patch` result.
@@ -663,6 +691,8 @@ async fn run_then_run_command(
     turn_environment: &TurnEnvironment,
     tool_ctx: &ToolCtx,
 ) -> String {
+    let (timeout, command) = split_then_run_timeout(&command);
+    let command = command.to_string();
     let hook_result = run_pre_tool_use_hooks(
         &tool_ctx.session,
         tool_ctx.step_context.as_ref(),
@@ -685,38 +715,39 @@ async fn run_then_run_command(
             updated_input: None,
         } => command,
     };
-    let output = match exec_then_run_command(&command, cwd, turn_environment, tool_ctx).await {
-        Ok(output) => output,
-        Err(UnifiedExecError::SandboxDenied {
-            output,
-            original_token_count,
-            output_omitted_bytes,
-            ..
-        }) => {
-            let text = output.aggregated_output.text;
-            ExecCommandToolOutput {
-                event_call_id: apply_patch_check_item_id(&tool_ctx.call_id),
-                chunk_id: String::new(),
-                wall_time: output.duration,
-                original_token_count: Some(
-                    original_token_count.unwrap_or_else(|| approx_token_count(&text)),
-                ),
-                raw_output: text.into_bytes(),
-                truncation_policy: tool_ctx
-                    .step_context
-                    .settings
-                    .model_info
-                    .truncation_policy
-                    .into(),
-                max_output_tokens: None,
-                process_id: None,
-                exit_code: Some(output.exit_code),
+    let output =
+        match exec_then_run_command(&command, timeout, cwd, turn_environment, tool_ctx).await {
+            Ok(output) => output,
+            Err(UnifiedExecError::SandboxDenied {
+                output,
+                original_token_count,
                 output_omitted_bytes,
-                hook_command: Some(command.clone()),
+                ..
+            }) => {
+                let text = output.aggregated_output.text;
+                ExecCommandToolOutput {
+                    event_call_id: apply_patch_check_item_id(&tool_ctx.call_id),
+                    chunk_id: String::new(),
+                    wall_time: output.duration,
+                    original_token_count: Some(
+                        original_token_count.unwrap_or_else(|| approx_token_count(&text)),
+                    ),
+                    raw_output: text.into_bytes(),
+                    truncation_policy: tool_ctx
+                        .step_context
+                        .settings
+                        .model_info
+                        .truncation_policy
+                        .into(),
+                    max_output_tokens: None,
+                    process_id: None,
+                    exit_code: Some(output.exit_code),
+                    output_omitted_bytes,
+                    hook_command: Some(command.clone()),
+                }
             }
-        }
-        Err(err) => return format!("Then Run: {command}\nFailed to run: {err}"),
-    };
+            Err(err) => return format!("Then Run: {command}\nFailed to run: {err}"),
+        };
     let hook_payload = ToolPayload::Function {
         arguments: serde_json::json!({ "cmd": command }).to_string(),
     };
@@ -759,11 +790,8 @@ async fn run_then_run_command(
             let exit_code = output
                 .exit_code
                 .map_or_else(|| "unknown".to_string(), |code| code.to_string());
-            let limit = if output.wall_time >= THEN_RUN_TIMEOUT {
-                format!(
-                    " (killed at the {} second limit)",
-                    THEN_RUN_TIMEOUT.as_secs()
-                )
+            let limit = if output.wall_time >= timeout {
+                format!(" (killed at the {} second limit)", timeout.as_secs())
             } else {
                 String::new()
             };
@@ -776,11 +804,12 @@ async fn run_then_run_command(
     format!("Then Run: {command}\n{body}")
 }
 
-/// Runs `command` to completion within [`THEN_RUN_TIMEOUT`] the way a one-shot
+/// Runs `command` to completion within `timeout` the way a one-shot
 /// `exec_command` call with only `cmd` set runs it: session shell, default
 /// sandbox permissions plus any granted to the turn, no TTY.
 async fn exec_then_run_command(
     command: &str,
+    timeout: Duration,
     cwd: &PathUri,
     turn_environment: &TurnEnvironment,
     tool_ctx: &ToolCtx,
@@ -869,7 +898,7 @@ async fn exec_then_run_command(
         tool_ctx.cancellation_token.clone(),
         item_id,
     );
-    UnifiedExecProcessManager::exec_command_to_completion(request, &context, THEN_RUN_TIMEOUT).await
+    UnifiedExecProcessManager::exec_command_to_completion(request, &context, timeout).await
 }
 
 fn require_environment_id(
