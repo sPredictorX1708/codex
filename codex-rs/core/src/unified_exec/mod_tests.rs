@@ -212,6 +212,7 @@ async fn exec_command_with_tty(
         max_output_tokens: None,
         process_id: response_process_id,
         exit_code,
+        timed_out_after: None,
         original_token_count: Some(original_token_count),
         output_omitted_bytes,
         hook_command: Some(cmd.to_string()),

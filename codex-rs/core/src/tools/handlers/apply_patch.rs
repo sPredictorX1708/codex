@@ -742,6 +742,7 @@ async fn run_then_run_command(
                     max_output_tokens: None,
                     process_id: None,
                     exit_code: Some(output.exit_code),
+                    timed_out_after: None,
                     output_omitted_bytes,
                     hook_command: Some(command.clone()),
                 }
@@ -790,7 +791,7 @@ async fn run_then_run_command(
             let exit_code = output
                 .exit_code
                 .map_or_else(|| "unknown".to_string(), |code| code.to_string());
-            let limit = if output.wall_time >= timeout {
+            let limit = if output.timed_out_after.is_some() {
                 format!(" (killed at the {} second limit)", timeout.as_secs())
             } else {
                 String::new()

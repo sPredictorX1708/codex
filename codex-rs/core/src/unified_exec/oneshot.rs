@@ -105,6 +105,7 @@ impl UnifiedExecProcessManager {
             let result = result.map(|mut output| {
                 if completion.timed_out {
                     output.process_id = None;
+                    output.timed_out_after = Some(completion.timeout);
                 }
                 output
             });

@@ -408,6 +408,40 @@ fn log_preview_uses_content_items_when_plain_text_is_missing() {
 }
 
 #[test]
+fn exec_command_tool_output_names_the_timeout_it_was_killed_at() {
+    let output = ExecCommandToolOutput {
+        event_call_id: "call-43".to_string(),
+        chunk_id: "abc123".to_string(),
+        wall_time: std::time::Duration::from_millis(200),
+        raw_output: b"partial".to_vec(),
+        truncation_policy: TruncationPolicy::Tokens(10_000),
+        max_output_tokens: None,
+        process_id: None,
+        exit_code: Some(124),
+        timed_out_after: Some(std::time::Duration::from_millis(200)),
+        original_token_count: Some(2),
+        output_omitted_bytes: None,
+        hook_command: None,
+    };
+    assert_eq!(
+        output.log_output(),
+        "Chunk ID: abc123\nWall time: 0.2000 seconds\nProcess exited with code 124\nOriginal token count: 2\nOutput:\nProcess killed at the 200 ms timeout\npartial"
+    );
+    let payload = ToolPayload::Function {
+        arguments: "{}".to_string(),
+    };
+    match output.to_response_item("call-43", &payload) {
+        ResponseInputItem::FunctionCallOutput { output, .. } => assert_eq!(
+            output.body.to_text().as_deref(),
+            Some(
+                "Chunk ID: abc123\nWall time: 0.2000 seconds\nProcess exited with code 124\nOriginal token count: 2\nOutput:\nProcess killed at the 200 ms timeout\npartial"
+            )
+        ),
+        other => panic!("expected FunctionCallOutput, got {other:?}"),
+    }
+}
+
+#[test]
 fn exec_command_tool_output_formats_truncated_response() {
     let payload = ToolPayload::Function {
         arguments: "{}".to_string(),
@@ -421,6 +455,7 @@ fn exec_command_tool_output_formats_truncated_response() {
         max_output_tokens: Some(4),
         process_id: None,
         exit_code: Some(0),
+        timed_out_after: None,
         original_token_count: Some(10),
         output_omitted_bytes: None,
         hook_command: None,
@@ -478,6 +513,7 @@ fn exec_command_tool_output_reserves_metadata_budget_and_preserves_policy_units(
             max_output_tokens: None,
             process_id: None,
             exit_code: Some(0),
+            timed_out_after: None,
             original_token_count: Some(123),
             output_omitted_bytes: None,
             hook_command: None,
@@ -522,6 +558,7 @@ fn exec_command_tool_output_preserves_omission_metadata_when_truncated() {
         max_output_tokens: Some(4),
         process_id: None,
         exit_code: Some(0),
+        timed_out_after: None,
         original_token_count: Some(42_000),
         output_omitted_bytes: NonZeroUsize::new(/*n*/ 123_456),
         hook_command: None,

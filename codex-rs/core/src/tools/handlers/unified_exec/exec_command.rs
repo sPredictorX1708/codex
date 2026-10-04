@@ -403,6 +403,7 @@ impl ExecCommandHandler {
                 max_output_tokens,
                 process_id: None,
                 exit_code: None,
+                timed_out_after: None,
                 original_token_count: None,
                 output_omitted_bytes: None,
                 hook_command: None,
@@ -470,6 +471,7 @@ impl ExecCommandHandler {
                     // process for write_stdin to resume.
                     process_id: None,
                     exit_code: Some(output.exit_code),
+                    timed_out_after: None,
                     original_token_count: Some(original_token_count),
                     output_omitted_bytes,
                     hook_command: Some(hook_command),

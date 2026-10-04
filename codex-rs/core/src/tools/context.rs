@@ -387,6 +387,8 @@ pub struct ExecCommandToolOutput {
     pub max_output_tokens: Option<usize>,
     pub process_id: Option<i32>,
     pub exit_code: Option<i32>,
+    /// The completion limit the process was killed at, when it outlived it.
+    pub timed_out_after: Option<Duration>,
     pub original_token_count: Option<usize>,
     /// Bytes omitted by the output collection cap before model-facing truncation.
     pub output_omitted_bytes: Option<NonZeroUsize>,
@@ -403,7 +405,11 @@ impl ToolOutput for ExecCommandToolOutput {
                 output = format!("{marker}\n{output}");
             }
         }
-        format!("{}\n{output}", self.response_header())
+        format!(
+            "{}\n{}{output}",
+            self.response_header(),
+            self.timeout_notice()
+        )
     }
 
     fn success_for_logging(&self) -> bool {
@@ -550,11 +556,25 @@ impl ExecCommandToolOutput {
         sections.join("\n")
     }
 
+    /// The line that opens the output of a process killed at its completion
+    /// limit, so a harness kill reads differently from a command's own exit 124.
+    fn timeout_notice(&self) -> String {
+        self.timed_out_after.map_or_else(String::new, |timeout| {
+            format!("Process killed at the {} ms timeout\n", timeout.as_millis())
+        })
+    }
+
     fn response_text(&self) -> String {
         let header = self.response_header();
+        let notice = self.timeout_notice();
         let output_budget = with_serialization_allowance(self.truncation_policy)
             .byte_budget()
-            .saturating_sub(header.len().saturating_add(/*rhs*/ 1));
+            .saturating_sub(
+                header
+                    .len()
+                    .saturating_add(/*rhs*/ 1)
+                    .saturating_add(notice.len()),
+            );
         let mut policy = self.model_output_policy();
         let mut output = self.truncated_output_with_policy(policy);
 
@@ -574,7 +594,7 @@ impl ExecCommandToolOutput {
             output = self.truncated_output_with_policy(policy);
         }
 
-        format!("{header}\n{output}")
+        format!("{header}\n{notice}{output}")
     }
 }
 

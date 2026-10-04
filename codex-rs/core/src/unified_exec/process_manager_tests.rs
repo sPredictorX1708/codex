@@ -669,3 +669,105 @@ async fn pruning_does_not_evict_live_process_while_exited_process_is_finalizing(
         (None, MAX_UNIFIED_EXEC_PROCESSES)
     );
 }
+
+async fn run_to_completion(command: &str, timeout: Duration) -> ExecCommandToolOutput {
+    let (session, mut turn) = crate::session::tests::make_session_and_context().await;
+    Arc::make_mut(&mut turn.config)
+        .permissions
+        .set_permission_profile(codex_protocol::models::PermissionProfile::Disabled)
+        .expect("unrestricted permission profile should be allowed");
+    let mut environment = turn
+        .initial_environments
+        .primary()
+        .cloned()
+        .expect("primary environment");
+    environment.config_mut().permission_profile =
+        codex_protocol::models::PermissionProfileSnapshot::legacy(
+            codex_protocol::models::PermissionProfile::Disabled,
+        );
+    turn.initial_environments.environments[0] =
+        crate::environment_selection::TurnEnvironmentState::Ready(environment);
+    let session = Arc::new(session);
+    let turn = Arc::new(turn);
+    let context = UnifiedExecContext::new(
+        Arc::clone(&session),
+        crate::session::step_context::StepContext::for_test(Arc::clone(&turn)),
+        tokio_util::sync::CancellationToken::new(),
+        "call-one-shot".to_string(),
+    );
+    let process_id = session
+        .services
+        .unified_exec_manager
+        .allocate_process_id()
+        .await;
+    let request = ExecCommandRequest {
+        command: vec!["sh".to_string(), "-c".to_string(), command.to_string()],
+        shell_type: crate::shell::ShellType::Sh,
+        hook_command: command.to_string(),
+        process_id,
+        yield_time_ms: 0,
+        max_output_tokens: None,
+        #[allow(deprecated)]
+        cwd: turn.cwd.clone().into(),
+        #[allow(deprecated)]
+        sandbox_cwd: turn.cwd.clone().into(),
+        turn_environment: turn
+            .initial_environments
+            .primary()
+            .cloned()
+            .expect("primary environment"),
+        shell_mode: codex_tools::UnifiedExecShellMode::Direct,
+        network: None,
+        tty: false,
+        sandbox_permissions: crate::sandboxing::SandboxPermissions::UseDefault,
+        additional_permissions: None,
+        additional_permissions_preapproved: false,
+        justification: None,
+        prefix_rule: None,
+    };
+    UnifiedExecProcessManager::exec_command_to_completion(request, &context, timeout)
+        .await
+        .expect("one-shot command result")
+}
+
+fn model_text(output: &ExecCommandToolOutput) -> String {
+    use crate::tools::context::ToolOutput;
+    let payload = crate::tools::context::ToolPayload::Function {
+        arguments: "{}".to_string(),
+    };
+    match output.to_response_item("call-one-shot", &payload) {
+        codex_protocol::models::ResponseInputItem::FunctionCallOutput { output, .. } => output
+            .body
+            .to_text()
+            .expect("exec output should serialize as text"),
+        other => panic!("expected FunctionCallOutput, got {other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_shot_command_killed_at_its_timeout_says_so() {
+    let output = run_to_completion("printf started; sleep 5", Duration::from_millis(200)).await;
+
+    assert_eq!(
+        (output.exit_code, output.timed_out_after, output.process_id),
+        (Some(124), Some(Duration::from_millis(200)), None)
+    );
+    let text = model_text(&output);
+    assert!(text.contains("Process exited with code 124\n"), "{text}");
+    assert!(
+        text.contains("Output:\nProcess killed at the 200 ms timeout\nstarted"),
+        "{text}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_shot_command_exiting_124_itself_is_not_reported_as_killed() {
+    let output = run_to_completion("exit 124", Duration::from_secs(10)).await;
+
+    assert_eq!(
+        (output.exit_code, output.timed_out_after),
+        (Some(124), None)
+    );
+    let text = model_text(&output);
+    assert!(!text.contains("killed at the"), "{text}");
+}
