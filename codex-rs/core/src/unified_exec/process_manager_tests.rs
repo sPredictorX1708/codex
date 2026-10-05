@@ -671,7 +671,16 @@ async fn pruning_does_not_evict_live_process_while_exited_process_is_finalizing(
 }
 
 async fn run_to_completion(command: &str, timeout: Duration) -> ExecCommandToolOutput {
-    let (session, mut turn) = crate::session::tests::make_session_and_context().await;
+    let (session, turn) = crate::session::tests::make_session_and_context().await;
+    run_to_completion_in(Arc::new(session), turn, command, timeout).await
+}
+
+async fn run_to_completion_in(
+    session: Arc<crate::session::session::Session>,
+    mut turn: crate::session::turn_context::TurnContext,
+    command: &str,
+    timeout: Duration,
+) -> ExecCommandToolOutput {
     Arc::make_mut(&mut turn.config)
         .permissions
         .set_permission_profile(codex_protocol::models::PermissionProfile::Disabled)
@@ -687,7 +696,6 @@ async fn run_to_completion(command: &str, timeout: Duration) -> ExecCommandToolO
         );
     turn.initial_environments.environments[0] =
         crate::environment_selection::TurnEnvironmentState::Ready(environment);
-    let session = Arc::new(session);
     let turn = Arc::new(turn);
     let context = UnifiedExecContext::new(
         Arc::clone(&session),
@@ -770,4 +778,35 @@ async fn one_shot_command_exiting_124_itself_is_not_reported_as_killed() {
     );
     let text = model_text(&output);
     assert!(!text.contains("killed at the"), "{text}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_shot_command_with_large_output_completes_before_its_result_returns() {
+    let (session, turn, rx_event) = crate::session::tests::make_session_and_context_with_rx().await;
+    let output = run_to_completion_in(
+        session,
+        Arc::try_unwrap(turn)
+            .ok()
+            .expect("test turn should not be shared"),
+        "sleep 0.3; yes 'FAIL test_case: expected 1 got 2' | head -c 307200; exit 1",
+        Duration::from_secs(30),
+    )
+    .await;
+
+    assert_eq!(output.exit_code, Some(1));
+    let completed = std::iter::from_fn(|| rx_event.try_recv().ok()).any(|event| {
+        matches!(
+            event.msg,
+            codex_protocol::protocol::EventMsg::ItemCompleted(
+                codex_protocol::protocol::ItemCompletedEvent {
+                    item: codex_protocol::items::TurnItem::CommandExecution(item),
+                    ..
+                }
+            ) if item.id == "call-one-shot"
+        )
+    });
+    assert!(
+        completed,
+        "the command's item.completed must be emitted before its tool result returns"
+    );
 }

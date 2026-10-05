@@ -154,6 +154,9 @@ pub(crate) fn start_streaming_output(process: &UnifiedExecProcess, context: &Uni
 
 /// Spawn a background watcher that waits for the PTY to exit and then emits a
 /// single ExecCommandEnd event with the aggregated transcript.
+///
+/// The returned handle finishes once that event has been sent, so a caller
+/// that saw the process exit can await it before returning the tool result.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn spawn_exit_watcher(
     process: Arc<UnifiedExecProcess>,
@@ -166,7 +169,7 @@ pub(crate) fn spawn_exit_watcher(
     started_at: Instant,
     network_denial_monitor: Option<tokio::task::JoinHandle<()>>,
     plugin_metrics_sidecar: Option<SharedPluginMetricsSidecar>,
-) {
+) -> tokio::task::JoinHandle<()> {
     let session_ref = Arc::clone(&context.session);
     let turn_ref = Arc::clone(&context.step_context.turn);
     let model_info = Arc::clone(&context.step_context.settings.model_info);
@@ -239,7 +242,7 @@ pub(crate) fn spawn_exit_watcher(
             )
             .await;
         }
-    });
+    })
 }
 
 impl<const MAX_BYTES: usize> Buffer<MAX_BYTES> {

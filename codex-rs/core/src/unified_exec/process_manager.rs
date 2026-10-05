@@ -596,27 +596,30 @@ impl UnifiedExecProcessManager {
         // Persist live sessions before the initial yield wait so interrupting the
         // turn cannot drop the last Arc and terminate the background process.
         let process_started_alive = !process.has_exited() && process.exit_code().is_none();
+        let mut exit_watcher = None;
         let mut initial_exec_command_guard = if process_started_alive {
             let initial_exec_command_active = Arc::new(AtomicBool::new(true));
-            self.store_process(
-                Arc::clone(&process),
-                context,
-                &request.command,
-                request.hook_command.clone(),
-                cwd.clone(),
-                request.turn_environment.selection.environment_id.clone(),
-                permissions,
-                plugin_attribution.clone(),
-                start,
-                request.process_id,
-                request.tty,
-                deferred_network_approval.clone(),
-                network_denial_monitor,
-                metrics_sidecar,
-                Arc::clone(&output_buffer),
-                Arc::clone(&initial_exec_command_active),
-            )
-            .await;
+            exit_watcher = Some(
+                self.store_process(
+                    Arc::clone(&process),
+                    context,
+                    &request.command,
+                    request.hook_command.clone(),
+                    cwd.clone(),
+                    request.turn_environment.selection.environment_id.clone(),
+                    permissions,
+                    plugin_attribution.clone(),
+                    start,
+                    request.process_id,
+                    request.tty,
+                    deferred_network_approval.clone(),
+                    network_denial_monitor,
+                    metrics_sidecar,
+                    Arc::clone(&output_buffer),
+                    Arc::clone(&initial_exec_command_active),
+                )
+                .await,
+            );
             InitialExecCommandGuard {
                 active: Some(initial_exec_command_active),
                 metrics_sidecar: None,
@@ -731,6 +734,11 @@ impl UnifiedExecProcessManager {
                         .await
                     {
                         return Err(fail_process_with_message(entry.process.as_ref(), message));
+                    }
+                    // The watcher emits this command's end event; send it before
+                    // the result so the item completes before the next tool call.
+                    if let Some(exit_watcher) = exit_watcher.take() {
+                        let _ = exit_watcher.await;
                     }
                     if !completion
                         .as_ref()
@@ -1206,7 +1214,7 @@ impl UnifiedExecProcessManager {
         metrics_sidecar: Option<PluginMetricsSidecar>,
         output_buffer: Arc<tokio::sync::Mutex<OutputBuffers>>,
         initial_exec_command_active: Arc<AtomicBool>,
-    ) {
+    ) -> tokio::task::JoinHandle<()> {
         let plugin_metrics_sidecar =
             metrics_sidecar.map(|sidecar| Arc::new(std::sync::Mutex::new(Some(sidecar))));
         let entry = ProcessEntry {
@@ -1248,7 +1256,7 @@ impl UnifiedExecProcessManager {
             started_at,
             network_denial_monitor,
             plugin_metrics_sidecar,
-        );
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
